@@ -97,12 +97,10 @@ fn get_eslint_file_regex(pre_commit_config_path: Option<PathBuf>) -> Result<Rege
         Some(pre_commit_config_path) => Path::new(&pre_commit_config_path).to_path_buf(),
         None => {
             let default_path = Path::new(PRE_COMMIT_CONFIG_FILE_NAME).to_path_buf();
-            if Path::exists(&default_path) {
-                default_path
-            } else {
-                let sidechain_dir = std::env::var("SIDECHAIN")?;
-                Path::new(&sidechain_dir).join(PRE_COMMIT_CONFIG_FILE_NAME)
+            if !Path::exists(&default_path) {
+                return Err(Error::msg(format!("unable to find pre-commit config file, try passing in a path with the --pre-commit-config-path flag")));
             }
+            default_path
         }
     };
     let pre_commit_config_path_display = pre_commit_config_path.display();
