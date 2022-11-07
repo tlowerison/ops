@@ -27,12 +27,16 @@ struct Args {
     /// whether to print commands prior to running
     #[clap(short, long)]
     verbose: bool,
+    /// eslint args
+    #[clap(raw = true)]
+    eslint_args: Vec<String>,
 }
 
 fn main() -> Result<(), Error> {
     let Args {
         pre_commit_config_path,
         verbose,
+        eslint_args,
     } = Args::parse();
 
     let file_regex = get_eslint_file_regex(pre_commit_config_path)?;
@@ -72,8 +76,9 @@ fn main() -> Result<(), Error> {
         );
     }
 
-    let output = Command::new("eslint")
-        .arg("--fix")
+    let output = Command::new("echo")
+        .arg("eslint")
+        .args(eslint_args)
         .args(js_file_names)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
