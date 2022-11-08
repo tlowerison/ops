@@ -2,7 +2,7 @@
 name = "ops"
 edition = "2021"
 version = "0.1.0"
-authors = ["Trey Lowerison <trey@sidechainme.com>"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = { version = "1.0.57", features = ["std"] }
