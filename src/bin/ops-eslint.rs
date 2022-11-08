@@ -33,19 +33,12 @@ struct Args {
 }
 
 fn main() -> Result<(), Error> {
-    let Args {
-        pre_commit_config_path,
-        verbose,
-        eslint_args,
-    } = Args::parse();
+    let Args { pre_commit_config_path, verbose, eslint_args } = Args::parse();
 
     let file_regex = get_eslint_file_regex(pre_commit_config_path)?;
 
     if verbose {
-        println!(
-            "{}",
-            format!("matching files with regex: {file_regex}").dimmed()
-        );
+        println!("{}", format!("matching files with regex: {file_regex}").dimmed());
     }
 
     let text = git_diff_name_status_since_last_branch()?;
@@ -54,13 +47,10 @@ fn main() -> Result<(), Error> {
         .iter()
         .filter_map(GitStatus::new_file_name)
         .filter_map(|file_name| {
-            file_regex
-                .is_match(file_name)
-                .ok()
-                .and_then(|is_match| match is_match {
-                    true => Some(file_name),
-                    _ => None,
-                })
+            file_regex.is_match(file_name).ok().and_then(|is_match| match is_match {
+                true => Some(file_name),
+                _ => None,
+            })
         })
         .collect::<Vec<_>>();
 
@@ -70,28 +60,13 @@ fn main() -> Result<(), Error> {
     }
 
     if verbose {
-        println!(
-            "{}",
-            format!("eslint --fix {}", js_file_names.join(" ")).dimmed()
-        );
+        println!("{}", format!("eslint --fix {}", js_file_names.join(" ")).dimmed());
     }
 
-    let output = Command::new("echo")
-        .arg("eslint")
-        .args(eslint_args)
-        .args(js_file_names)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .output()?;
+    let output = Command::new("echo").arg("eslint").args(eslint_args).args(js_file_names).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
 
     if !output.status.success() {
-        return Err(Error::msg(
-            output
-                .status
-                .code()
-                .map(|code| format!("eslint failed with status {code}"))
-                .unwrap_or_else(|| String::from("eslint failed")),
-        ));
+        return Err(Error::msg(output.status.code().map(|code| format!("eslint failed with status {code}")).unwrap_or_else(|| String::from("eslint failed"))));
     }
 
     Ok(())
@@ -112,11 +87,7 @@ fn get_eslint_file_regex(pre_commit_config_path: Option<PathBuf>) -> Result<Rege
 
     let pre_commit_config_text = fs::read_to_string(&pre_commit_config_path)?;
     let pre_commit_config: Value =
-        serde_yaml::from_str(&pre_commit_config_text).map_err(|err| {
-            Error::msg(format!(
-                "unable to parse `{pre_commit_config_path_display}`: {err}"
-            ))
-        })?;
+        serde_yaml::from_str(&pre_commit_config_text).map_err(|err| Error::msg(format!("unable to parse `{pre_commit_config_path_display}`: {err}")))?;
 
     let eslint_hook_config = pre_commit_config
         .get("repos")

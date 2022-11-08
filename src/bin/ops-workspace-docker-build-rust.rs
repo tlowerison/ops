@@ -59,22 +59,9 @@ enum Push {
 }
 
 fn main() -> Result<(), Error> {
-    let Args {
-        copy,
-        docker_args,
-        empty_feature_set,
-        feature_set,
-        push,
-        repo,
-        tag,
-        verbose,
-        workspace_dir: provided_workspace_dir,
-    } = Args::parse();
+    let Args { copy, docker_args, empty_feature_set, feature_set, push, repo, tag, verbose, workspace_dir: provided_workspace_dir } = Args::parse();
 
-    let push = push
-        .as_ref()
-        .map(|x| serde_urlencoded::from_str::<Push>(x))
-        .transpose()?;
+    let push = push.as_ref().map(|x| serde_urlencoded::from_str::<Push>(x)).transpose()?;
 
     let cwd = env::current_dir()?;
 
@@ -86,9 +73,7 @@ fn main() -> Result<(), Error> {
     }
 
     if !cwd.starts_with(&workspace_dir) {
-        return Err(Error::msg(
-            "current directory is not contained within the workspace directory",
-        ));
+        return Err(Error::msg("current directory is not contained within the workspace directory"));
     }
 
     let service_dir = cwd.strip_prefix(&workspace_dir)?;
@@ -98,62 +83,37 @@ fn main() -> Result<(), Error> {
         .get("package")
         .ok_or_else(|| Error::msg("cannot parse service level Cargo.toml: missing key `package`"))?
         .get("name")
-        .ok_or_else(|| {
-            Error::msg("cannot parse service level Cargo.toml: missing key `package.name`")
-        })?
+        .ok_or_else(|| Error::msg("cannot parse service level Cargo.toml: missing key `package.name`"))?
         .as_str()
-        .ok_or_else(|| {
-            Error::msg("cannot parse service level Cargo.toml: key `package.name` must be a string")
-        })?;
+        .ok_or_else(|| Error::msg("cannot parse service level Cargo.toml: key `package.name` must be a string"))?;
 
-    let mut feature_sets: Vec<Vec<&str>> =
-        feature_set.iter().map(|x| x.split(',').collect()).collect();
+    let mut feature_sets: Vec<Vec<&str>> = feature_set.iter().map(|x| x.split(',').collect()).collect();
 
     if feature_sets.is_empty() || empty_feature_set {
         feature_sets.insert(0, vec![]);
     }
 
-    let DockerArgs {
-        image_name,
-        args: docker_args,
-        build_rust_args: build_rust_docker_args,
-    } = process_docker_args(docker_args, service_name, &repo, tag)?;
+    let DockerArgs { image_name, args: docker_args, build_rust_args: build_rust_docker_args } = process_docker_args(docker_args, service_name, &repo, tag)?;
 
     let workspace_deps = get_deps(&workspace_dir, Dependencies::Workspace)?;
 
     let mut package_local_deps: HashMap<String, String> = Default::default();
-    get_dep_paths(
-        &workspace_dir,
-        &service_dir.display().to_string(),
-        &workspace_deps,
-        &mut package_local_deps,
-    )?;
+    get_dep_paths(&workspace_dir, &service_dir.display().to_string(), &workspace_deps, &mut package_local_deps)?;
 
     fs::create_dir_all(workspace_dir.join("tmp"))?;
-    let mut tar_builder = tar::Builder::new(
-        fs::File::create(
-            workspace_dir
-                .join("tmp")
-                .join("crate_dependencies.build.tar"),
-        )
-        .unwrap(),
-    );
+    let mut tar_builder = tar::Builder::new(fs::File::create(workspace_dir.join("tmp").join("crate_dependencies.build.tar")).unwrap());
 
     for path in package_local_deps.values() {
-        let entries = WalkDir::new(workspace_dir.join(path))
-            .into_iter()
-            .filter_entry(|e: &DirEntry| {
-                let file_name = e.file_name().to_str();
-                if file_name.is_none() {
-                    return false;
-                }
-                let file_name = file_name.unwrap();
-                file_name != "node_modules"
-                    && file_name != "target"
-                    && (e.file_type().is_dir()
-                        || &file_name[file_name.len() - 2..] == "rs"
-                        || file_name == "Cargo.toml")
-            });
+        let entries = WalkDir::new(workspace_dir.join(path)).into_iter().filter_entry(|e: &DirEntry| {
+            let file_name = e.file_name().to_str();
+            if file_name.is_none() {
+                return false;
+            }
+            let file_name = file_name.unwrap();
+            file_name != "node_modules"
+                && file_name != "target"
+                && (e.file_type().is_dir() || &file_name[file_name.len() - 2..] == "rs" || file_name == "Cargo.toml")
+        });
 
         for entry in entries {
             let entry = entry.unwrap();
@@ -178,28 +138,15 @@ fn main() -> Result<(), Error> {
         println!("{}", BASE_DOCKERFILE.dimmed());
     }
 
-    let mut child = Command::new(cmd)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?;
+    let mut child = Command::new(cmd).args(args).stdin(Stdio::piped()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).spawn()?;
 
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| Error::msg("could not take child process stdin"))?;
-    std::thread::spawn(move || stdin.write_all(BASE_DOCKERFILE.as_bytes()))
-        .join()
-        .map_err(|_| Error::msg("thread error"))??;
+    let mut stdin = child.stdin.take().ok_or_else(|| Error::msg("could not take child process stdin"))?;
+    std::thread::spawn(move || stdin.write_all(BASE_DOCKERFILE.as_bytes())).join().map_err(|_| Error::msg("thread error"))??;
 
     let output = child.wait_with_output()?;
 
     if !output.status.success() {
-        return Err(Error::msg(format!(
-            "docker failed with status {}",
-            output.status.code().unwrap()
-        )));
+        return Err(Error::msg(format!("docker failed with status {}", output.status.code().unwrap())));
     }
 
     let cmd = "docker";
@@ -211,46 +158,24 @@ fn main() -> Result<(), Error> {
         println!("{}", service_dockerfile.dimmed());
     }
 
-    let mut child = Command::new(cmd)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?;
+    let mut child = Command::new(cmd).args(args).stdin(Stdio::piped()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).spawn()?;
 
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| Error::msg("could not take child process stdin"))?;
-    std::thread::spawn(move || stdin.write_all(service_dockerfile.as_bytes()))
-        .join()
-        .map_err(|_| Error::msg("thread error"))??;
+    let mut stdin = child.stdin.take().ok_or_else(|| Error::msg("could not take child process stdin"))?;
+    std::thread::spawn(move || stdin.write_all(service_dockerfile.as_bytes())).join().map_err(|_| Error::msg("thread error"))??;
 
     let output = child.wait_with_output()?;
 
     if !output.status.success() {
-        return Err(Error::msg(format!(
-            "docker failed with status {}",
-            output.status.code().unwrap()
-        )));
+        return Err(Error::msg(format!("docker failed with status {}", output.status.code().unwrap())));
     }
 
-    println!(
-        "successfully built image{}",
-        image_name
-            .as_ref()
-            .map(|x| format!(": {x}"))
-            .unwrap_or_default()
-    );
+    println!("successfully built image{}", image_name.as_ref().map(|x| format!(": {x}")).unwrap_or_default());
 
     if let (Some(push), Some(image_name)) = (push, image_name.as_ref()) {
         match push {
             Push::Aws { region } => {
                 if verbose {
-                    println!(
-                        "{}",
-                        format!("aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {repo}").dimmed()
-                    );
+                    println!("{}", format!("aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {repo}").dimmed());
                 }
 
                 let mut aws_ecr_get_login_password = Command::new("aws")
@@ -269,28 +194,18 @@ fn main() -> Result<(), Error> {
                     .output()?;
 
                 if !output.status.success() {
-                    return Err(Error::msg(format!(
-                        "docker login failed with status {}",
-                        output.status.code().unwrap()
-                    )));
+                    return Err(Error::msg(format!("docker login failed with status {}", output.status.code().unwrap())));
                 }
 
                 if verbose {
                     println!("{}", format!("docker push {image_name}").dimmed());
                 }
 
-                let output = Command::new("docker")
-                    .args(["push", image_name])
-                    .stdin(Stdio::inherit())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit())
-                    .output()?;
+                let output =
+                    Command::new("docker").args(["push", image_name]).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
 
                 if !output.status.success() {
-                    return Err(Error::msg(format!(
-                        "docker push failed with status {}",
-                        output.status.code().unwrap()
-                    )));
+                    return Err(Error::msg(format!("docker push failed with status {}", output.status.code().unwrap())));
                 }
             }
         }
@@ -311,12 +226,7 @@ fn get_deps(service_dir: &Path, deps: Dependencies) -> Result<Map<String, Value>
         Value::Table(mut table) => match deps {
             Dependencies::Package => table,
             Dependencies::Workspace => {
-                match table.remove("workspace").ok_or_else(|| {
-                    Error::msg(format!(
-                        "missing `workspace` key in {}",
-                        file_path.display()
-                    ))
-                })? {
+                match table.remove("workspace").ok_or_else(|| Error::msg(format!("missing `workspace` key in {}", file_path.display())))? {
                     Value::Table(table) => table,
                     _ => panic!(),
                 }
@@ -324,15 +234,10 @@ fn get_deps(service_dir: &Path, deps: Dependencies) -> Result<Map<String, Value>
         },
         _ => panic!(),
     };
-    Ok(
-        match table
-            .remove("dependencies")
-            .unwrap_or_else(|| Value::Table(Map::default()))
-        {
-            Value::Table(deps) => deps,
-            _ => panic!(),
-        },
-    )
+    Ok(match table.remove("dependencies").unwrap_or_else(|| Value::Table(Map::default())) {
+        Value::Table(deps) => deps,
+        _ => panic!(),
+    })
 }
 
 fn get_dep_paths(
@@ -369,11 +274,7 @@ fn get_features_flag(feature_set: &[&str]) -> String {
     }
 }
 
-fn get_service_dockerfile(
-    service_name: &str,
-    feature_sets: &[Vec<&str>],
-    copy: &[String],
-) -> Result<String, Error> {
+fn get_service_dockerfile(service_name: &str, feature_sets: &[Vec<&str>], copy: &[String]) -> Result<String, Error> {
     let service_dockerfile = SERVICE_DOCKERFILE.replace("$service", service_name);
 
     let additional_copies = copy
@@ -392,22 +293,12 @@ fn get_service_dockerfile(
 
     let service_dockerfile = service_dockerfile.replace("$file_copy", &additional_copies);
 
-    let mut service_docker_pre_builds = feature_sets
-        .iter()
-        .map(|feature_set| {
-            format!(
-                "  RUN cargo build  --release {}",
-                get_features_flag(feature_set)
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut service_docker_pre_builds =
+        feature_sets.iter().map(|feature_set| format!("  RUN cargo build  --release {}", get_features_flag(feature_set))).collect::<Vec<_>>();
     service_docker_pre_builds.insert(0, "  RUN cargo build  --release".to_string());
-    service_docker_pre_builds.push(format!(
-        "  RUN rm /app/target/release/rust_build && rm /app/target/release/{service_name}"
-    ));
+    service_docker_pre_builds.push(format!("  RUN rm /app/target/release/rust_build && rm /app/target/release/{service_name}"));
 
-    let service_dockerfile =
-        service_dockerfile.replace("$pre_build", service_docker_pre_builds.join("\n").trim());
+    let service_dockerfile = service_dockerfile.replace("$pre_build", service_docker_pre_builds.join("\n").trim());
 
     let mut service_docker_build_binaries = feature_sets
         .iter()
@@ -421,8 +312,7 @@ fn get_service_dockerfile(
         .collect::<Vec<_>>();
     service_docker_build_binaries.push("  RUN cargo build --release".to_string());
 
-    let service_dockerfile =
-        service_dockerfile.replace("$build", service_docker_build_binaries.join("\n").trim());
+    let service_dockerfile = service_dockerfile.replace("$build", service_docker_build_binaries.join("\n").trim());
 
     let mut service_docker_copy_binaries = feature_sets
         .iter()
@@ -434,14 +324,9 @@ fn get_service_dockerfile(
             )
         })
         .collect::<Vec<_>>();
-    service_docker_copy_binaries.push(format!(
-        "  COPY --from=build-{service_name} /app/target/release/{service_name} /app/{service_name}"
-    ));
+    service_docker_copy_binaries.push(format!("  COPY --from=build-{service_name} /app/target/release/{service_name} /app/{service_name}"));
 
-    let service_dockerfile = service_dockerfile.replace(
-        "$binary_copy",
-        service_docker_copy_binaries.join("\n").trim(),
-    );
+    let service_dockerfile = service_dockerfile.replace("$binary_copy", service_docker_copy_binaries.join("\n").trim());
 
     Ok(service_dockerfile)
 }
@@ -452,12 +337,7 @@ struct DockerArgs {
     build_rust_args: Vec<String>,
 }
 
-fn process_docker_args(
-    docker_args: Vec<String>,
-    service_name: &str,
-    repo: &str,
-    tag: Option<String>,
-) -> Result<DockerArgs, Error> {
+fn process_docker_args(docker_args: Vec<String>, service_name: &str, repo: &str, tag: Option<String>) -> Result<DockerArgs, Error> {
     let mut build_rust_docker_args = vec![];
     let mut tag_arg_index = None;
     for (i, arg) in docker_args.clone().into_iter().enumerate() {
@@ -493,11 +373,7 @@ fn process_docker_args(
         new_docker_args.push("--tag".to_string());
         new_docker_args.push(image_name.clone());
 
-        Ok(DockerArgs {
-            image_name: Some(image_name),
-            args: new_docker_args,
-            build_rust_args: build_rust_docker_args,
-        })
+        Ok(DockerArgs { image_name: Some(image_name), args: new_docker_args, build_rust_args: build_rust_docker_args })
     } else {
         let mut image_name = None;
         let mut tag_arg_index = None;
@@ -513,10 +389,6 @@ fn process_docker_args(
             }
         }
 
-        Ok(DockerArgs {
-            args: docker_args,
-            build_rust_args: build_rust_docker_args,
-            image_name,
-        })
+        Ok(DockerArgs { args: docker_args, build_rust_args: build_rust_docker_args, image_name })
     }
 }
