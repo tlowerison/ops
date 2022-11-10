@@ -8,12 +8,13 @@ license = "MIT OR Apache-2.0"
 anyhow = { version = "1.0.57", features = ["std"] }
 clap = { version = "3.2.1", features = ["derive"] }
 colored = "2.0.0"
+ctrlc = "3.2.3"
 fancy-regex = "0.10.0"
 lazy_static = "1.4.0"
 path-absolutize = "3.0.14"
 serde = { version = "1.0.147", features = ["derive"] }
 serde_urlencoded = "0.7.1"
 serde_yaml = "0.9.14"
-tar = "0.4.38"
+tempfile = "3.3.0"
 toml = "0.5.9"
 walkdir = "2.3.2"

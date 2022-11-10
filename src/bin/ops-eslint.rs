@@ -78,7 +78,7 @@ fn get_eslint_file_regex(pre_commit_config_path: Option<PathBuf>) -> Result<Rege
         None => {
             let default_path = Path::new(PRE_COMMIT_CONFIG_FILE_NAME).to_path_buf();
             if !Path::exists(&default_path) {
-                return Err(Error::msg(format!("unable to find pre-commit config file, try passing in a path with the --pre-commit-config-path flag")));
+                return Err(Error::msg("unable to find pre-commit config file, try passing in a path with the --pre-commit-config-path flag".to_string()));
             }
             default_path
         }
