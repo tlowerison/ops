@@ -1,6 +1,7 @@
+use anyhow::Error;
 use clap::Parser;
-use ops::docker_build::*;
+use ops::docker::build::*;
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> Result<(), Error> {
     docker_build(DockerBuildArgs::parse())
 }
