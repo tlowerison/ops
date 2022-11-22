@@ -31,6 +31,11 @@ pub struct DockerBuildRustWorkspaceArgs {
     #[clap(short, long)]
     pub ignore_file: Option<PathBuf>,
 
+    /// service dependencies to omit during pre-build (e.g. if one service depends on another, you should omit the service dependency during
+    /// pre-build if both are likely to change frequently)
+    #[clap(long, value_parser, action = clap::ArgAction::Append)]
+    pub pre_build_omit: Vec<String>,
+
     /// push image to image repository after successful build
     #[clap(short, long)]
     pub push: Option<String>,
@@ -49,7 +54,17 @@ pub struct DockerBuildRustWorkspaceArgs {
 }
 
 pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result<(), Error> {
-    let DockerBuildRustWorkspaceArgs { copy, docker_args, default_feature_set, feature_set, ignore_file, push, service: provided_service_dir, verbose } = args;
+    let DockerBuildRustWorkspaceArgs {
+        copy,
+        docker_args,
+        default_feature_set,
+        feature_set,
+        ignore_file,
+        pre_build_omit,
+        push,
+        service: provided_service_dir,
+        verbose,
+    } = args;
 
     let cwd = env::current_dir()?;
     let cwd = Path::new(&cwd);
@@ -79,7 +94,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
 
     env::set_current_dir(get_workspace_dir(&service_dir)?)?;
 
-    let service_dockerfile = get_service_dockerfile(service_name, &feature_sets, &copy)?;
+    let service_dockerfile = get_service_dockerfile(service_name, &feature_sets, &copy, &pre_build_omit)?;
 
     let DockerImageName { mut args_without_image_name, .. } = get_docker_image_name(&docker_args)?;
 
@@ -109,7 +124,7 @@ fn get_features_flag(feature_set: &[&str]) -> String {
     }
 }
 
-fn get_service_dockerfile(service_name: &str, feature_sets: &[Vec<&str>], copy: &[String]) -> Result<String, Error> {
+fn get_service_dockerfile(service_name: &str, feature_sets: &[Vec<&str>], copy: &[String], pre_build_omit: &[String]) -> Result<String, Error> {
     let service_dockerfile = SERVICE_DOCKERFILE.replace("$service", service_name);
 
     let additional_copies = copy
@@ -127,6 +142,9 @@ fn get_service_dockerfile(service_name: &str, feature_sets: &[Vec<&str>], copy: 
         .join("\n");
 
     let service_dockerfile = service_dockerfile.replace("$file_copy", &additional_copies);
+
+    let pre_build_omit_deps = format!(r#"'{{{}}}'"#, pre_build_omit.iter().map(|x| format!(r#""{x}": true"#)).collect::<Vec<_>>().join(","));
+    let service_dockerfile = service_dockerfile.replace("$pre_build_omit_deps", &pre_build_omit_deps);
 
     let mut service_docker_pre_builds =
         feature_sets.iter().map(|feature_set| format!("  RUN cargo build  --release {}", get_features_flag(feature_set))).collect::<Vec<_>>();

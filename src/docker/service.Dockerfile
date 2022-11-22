@@ -21,7 +21,9 @@ FROM build-rust as build-$service
   RUN cat Cargo.toml | tomlq -t '.package' | sed 's/^\[/\[package./g' >> Cargo2.toml
   RUN echo >> Cargo2.toml
   RUN cat Cargo.toml \
-      | tomlq -t '.dependencies | to_entries | map(select(.value | type == "string" or .path == null)) | from_entries' \
+      | tomlq -t \
+        --argjson prebuild_omit_deps $pre_build_omit_deps \
+        '.dependencies | to_entries | map(select(.value.type == "string" or (.value.path == null and (.key | (type != "string" or in($prebuild_omit_deps)) | not)))) | from_entries' \
       | sed 's/^\[/\[dependencies./g' \
       >> Cargo2.toml
   RUN echo "\n[features]" >> Cargo2.toml
