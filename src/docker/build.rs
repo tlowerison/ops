@@ -126,6 +126,8 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
     args.append(&mut vec!["--file", &tmp_docker_file_path_display]);
     if verbose {
         println!("{}", format!("{cmd} {}", args.join(" ")).dimmed());
+        let docker_file = read_to_string(tmp_docker_file_path)?;
+        println!("{}", docker_file.dimmed());
     }
 
     let output = Command::new(cmd).args(args).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
