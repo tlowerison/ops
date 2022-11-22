@@ -83,95 +83,102 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
     let DockerConfig { docker_file, ignore_file } = get_docker_file_and_docker_ignore_file(cwd, file_text, docker_file, ignore_file, verbose)?;
     let DockerImageName { image_name, .. } = get_docker_image_name(&docker_args)?;
 
-    let tmpdir = tempfile::tempdir()?;
-    let tmpdir = tmpdir.path();
+    // NOTE: tmp_dir and all of its contents are deleted on drop, only need
+    let tmp_dir = tempfile::tempdir()?;
+    let tmp_dir = tmp_dir.path();
 
-    ctrlc::set_handler({
-        let tmpdir = tmpdir.to_path_buf();
-        move || delete_tmpdir(&tmpdir, verbose).unwrap()
-    })?;
+    if verbose {
+        println!("{}", format!("created temporary directory for Dockerfile and .dockerignore at path: {}", tmp_dir.display()).dimmed());
+    }
+    let tmp_docker_file_path = tmp_dir.join("Dockerfile.tmp");
+    let tmp_ignore_file_path = tmp_dir.join("Dockerfile.tmp.dockerignore");
 
-    let result = std::panic::catch_unwind(|| {
-        if verbose {
-            println!("{}", format!("created temporary directory for Dockerfile and .dockerignore at path: {}", tmpdir.display()).dimmed());
-        }
-        let tmp_docker_file_path = tmpdir.join("Dockerfile.tmp");
-        let tmp_ignore_file_path = tmpdir.join("Dockerfile.tmp.dockerignore");
+    if verbose {
+        println!("{}", format!("creating Dockerfile at: {}", tmp_docker_file_path.display()).dimmed());
+    }
+    let mut docker_file_file = File::create(&tmp_docker_file_path)?;
+    if verbose {
+        println!("{}", "created Dockerfile successfully".to_string().dimmed());
+    }
 
-        if verbose {
-            println!("{}", format!("writing to Dockerfile at path: {}", tmp_docker_file_path.display()).dimmed());
-        }
-        writeln!(File::create(&tmp_docker_file_path)?, "{docker_file}")?;
-        if verbose {
-            println!("{}", format!("writing to .dockerignore at path: {}", tmp_ignore_file_path.display()).dimmed());
-        }
-        writeln!(File::create(&tmp_ignore_file_path)?, "{}", ignore_file.unwrap_or_default())?;
+    if verbose {
+        println!("{}", format!("writing to Dockerfile at path: {}", tmp_docker_file_path.display()).dimmed());
+    }
+    writeln!(docker_file_file, "{docker_file}")?;
 
-        let cmd = "docker";
-        let mut args = vec!["build"];
-        args.append(&mut docker_args.iter().map(|x| &**x).collect());
-        let tmp_docker_file_path_display = tmp_docker_file_path.display().to_string();
-        args.append(&mut vec!["--file", &tmp_docker_file_path_display]);
-        if verbose {
-            println!("{}", format!("{cmd} {}", args.join(" ")).dimmed());
-        }
+    if verbose {
+        println!("{}", format!("creating ignore file at: {}", tmp_ignore_file_path.display()).dimmed());
+    }
+    let mut ignore_file_file = File::create(&tmp_ignore_file_path)?;
+    if verbose {
+        println!("{}", "created ignore file successfully".to_string().dimmed());
+    }
 
-        let output = Command::new(cmd).args(args).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
+    if verbose {
+        println!("{}", "writing to ignore file".to_string().dimmed());
+    }
+    writeln!(ignore_file_file, "{}", ignore_file.unwrap_or_default())?;
 
-        if !output.status.success() {
-            return Err(Error::msg(format!("docker failed with status {}", output.status.code().unwrap())));
-        }
+    let cmd = "docker";
+    let mut args = vec!["build"];
+    args.append(&mut docker_args.iter().map(|x| &**x).collect());
+    let tmp_docker_file_path_display = tmp_docker_file_path.display().to_string();
+    args.append(&mut vec!["--file", &tmp_docker_file_path_display]);
+    if verbose {
+        println!("{}", format!("{cmd} {}", args.join(" ")).dimmed());
+    }
 
-        println!("successfully built image: {image_name}");
+    let output = Command::new(cmd).args(args).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
 
-        if let Some(push) = push {
-            match push {
-                DockerBuildPush::Aws { region } => {
-                    let repo = get_repo_from_image_name(image_name)?;
+    if !output.status.success() {
+        return Err(Error::msg(format!("docker failed with status {}", output.status.code().unwrap())));
+    }
 
-                    if verbose {
-                        println!("{}", format!("aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {repo}").dimmed());
-                    }
+    println!("successfully built image: {image_name}");
 
-                    let mut aws_ecr_get_login_password = Command::new("aws")
-                        .args(["ecr", "get-login-password"])
-                        .args(["--region", &region])
-                        .stdin(Stdio::inherit())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::inherit())
-                        .spawn()?;
+    if let Some(push) = push {
+        match push {
+            DockerBuildPush::Aws { region } => {
+                let repo = get_repo_from_image_name(image_name)?;
 
-                    let output = Command::new("docker")
-                        .arg("login")
-                        .args(["--username", "AWS"])
-                        .args(["--password-stdin", repo])
-                        .stdin(aws_ecr_get_login_password.stdout.take().unwrap())
-                        .output()?;
+                if verbose {
+                    println!("{}", format!("aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {repo}").dimmed());
+                }
 
-                    if !output.status.success() {
-                        return Err(Error::msg(format!("docker login failed with status {}", output.status.code().unwrap())));
-                    }
+                let mut aws_ecr_get_login_password = Command::new("aws")
+                    .args(["ecr", "get-login-password"])
+                    .args(["--region", &region])
+                    .stdin(Stdio::inherit())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::inherit())
+                    .spawn()?;
 
-                    if verbose {
-                        println!("{}", format!("docker push {image_name}").dimmed());
-                    }
+                let output = Command::new("docker")
+                    .arg("login")
+                    .args(["--username", "AWS"])
+                    .args(["--password-stdin", repo])
+                    .stdin(aws_ecr_get_login_password.stdout.take().unwrap())
+                    .output()?;
 
-                    let output =
-                        Command::new("docker").args(["push", image_name]).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
+                if !output.status.success() {
+                    return Err(Error::msg(format!("docker login failed with status {}", output.status.code().unwrap())));
+                }
 
-                    if !output.status.success() {
-                        return Err(Error::msg(format!("docker push failed with status {}", output.status.code().unwrap())));
-                    }
+                if verbose {
+                    println!("{}", format!("docker push {image_name}").dimmed());
+                }
+
+                let output =
+                    Command::new("docker").args(["push", image_name]).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
+
+                if !output.status.success() {
+                    return Err(Error::msg(format!("docker push failed with status {}", output.status.code().unwrap())));
                 }
             }
         }
+    }
 
-        Ok(())
-    });
-
-    delete_tmpdir(tmpdir, verbose)?;
-
-    result.unwrap_or_else(|_| Err(Error::msg("an unexpected error ocurred")))
+    Ok(())
 }
 
 pub struct DockerImageName<'a> {
@@ -300,11 +307,4 @@ fn get_docker_file_and_docker_ignore_file(
     }
 
     Ok(DockerConfig { docker_file: read_to_string(docker_file)?, ignore_file: ignore_file.map(read_to_string).transpose()? })
-}
-
-fn delete_tmpdir(tmpdir: &Path, verbose: bool) -> Result<(), Error> {
-    if verbose {
-        println!("{}", format!("deleting temporary build directory at path: {}", tmpdir.display()).dimmed());
-    }
-    Ok(())
 }

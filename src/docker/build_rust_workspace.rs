@@ -18,7 +18,7 @@ pub struct DockerBuildRustWorkspaceArgs {
 
     /// whether to build the default binary: enabled if no feature sets are passed in, otherwise defaults to false
     #[clap(long)]
-    pub empty_feature_set: bool,
+    pub default_feature_set: bool,
 
     /// comma separated set of features to use for a binary build: the build will include this binary as `{package_name}_{feature_set.join("_")}`
     #[clap(long, value_parser, action = clap::ArgAction::Append)]
@@ -49,7 +49,7 @@ pub struct DockerBuildRustWorkspaceArgs {
 }
 
 pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result<(), Error> {
-    let DockerBuildRustWorkspaceArgs { copy, docker_args, empty_feature_set, feature_set, ignore_file, push, service: provided_service_dir, verbose } = args;
+    let DockerBuildRustWorkspaceArgs { copy, docker_args, default_feature_set, feature_set, ignore_file, push, service: provided_service_dir, verbose } = args;
 
     let cwd = env::current_dir()?;
     let cwd = Path::new(&cwd);
@@ -73,7 +73,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
 
     let mut feature_sets: Vec<Vec<&str>> = feature_set.iter().map(|x| x.split(',').collect()).collect();
 
-    if feature_sets.is_empty() || empty_feature_set {
+    if feature_sets.is_empty() || default_feature_set {
         feature_sets.insert(0, vec![]);
     }
 

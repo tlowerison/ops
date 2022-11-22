@@ -25,7 +25,11 @@ FROM build-rust as build-$service
       | sed 's/^\[/\[dependencies./g' \
       >> Cargo2.toml
   RUN echo "\n[features]" >> Cargo2.toml
-  RUN cat Cargo.toml | tomlq -t '.features' >> Cargo2.toml
+  RUN cat Cargo.toml \
+    | tomlq \
+      --arg path_deps_regex $(cat Cargo.toml | tomlq -cr '.dependencies | to_entries | map(select(.value | type != "string" and .path != null)) | from_entries | keys | .[]' | xargs echo | sed 's/ /|/g' | xargs -I {} echo '^({})(/|$)') \
+      -t '.features | map_values(map_values(select(. | . == null or test($path_deps_regex) | not)))' \
+    >> Cargo2.toml
   RUN mv Cargo2.toml Cargo.toml
 
   $file_copy
