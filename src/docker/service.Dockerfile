@@ -1,4 +1,4 @@
-FROM build-rust as build-$service
+FROM $base_image as build-$service
   WORKDIR /app
 
   RUN ls -a .
@@ -32,9 +32,7 @@ FROM build-rust as build-$service
       --arg path_deps_regex $(cat Cargo.toml | tomlq -cr '.dependencies | to_entries | map(select(.value | type != "string" and .path != null)) | from_entries | keys | .[]' | xargs echo | sed 's/ /|/g' | xargs -I {} echo '^({})(/|$)') \
       -t '.features | map_values(map_values(select(. | . == null or test($path_deps_regex) | not)))' \
     >> Cargo2.toml
-  RUN mv Cargo2.toml Cargo.toml
-
-  $file_copy
+  RUN mv Cargo2.toml Cargo.toml$file_copy
 
   RUN rm -rf src && mkdir src && echo "fn main() {}" > src/main.rs
 
