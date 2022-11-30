@@ -18,3 +18,6 @@ FROM fetch-rust AS build-rust
   WORKDIR /app
   RUN rm -rf rust_build
   COPY Cargo.toml Cargo.toml
+
+  # neccessary to replace the formerly edited Cargo.lock used in the fetch and base build steps
+  COPY Cargo.lock Cargo.lock

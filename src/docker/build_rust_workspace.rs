@@ -109,20 +109,20 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         feature_sets.push(vec![]);
     }
 
-    env::set_current_dir(get_workspace_dir(&service_dir)?)?;
+    let workspace_dir = get_workspace_dir(&service_dir)?;
+    env::set_current_dir(workspace_dir)?;
 
     let profile = profile.unwrap_or_else(|| "release".to_string());
+
+    let fetch_dockerfile = get_fetch_dockerfile(workspace_dir, &rust_version)?;
 
     let service_dockerfile = get_service_dockerfile(service_name, &profile, &feature_sets, &copy, &pre_build_omit)?;
 
     let DockerImageName { mut args_without_image_name, .. } = get_docker_image_name(&docker_args)?;
 
-    let mut fetch_docker_args = vec!["."];
+    let mut fetch_docker_args = vec![];
     fetch_docker_args.append(&mut args_without_image_name.clone());
     fetch_docker_args.append(&mut vec!["--tag", "fetch-rust"]);
-
-    let fetch_dockerfile = FETCH_DOCKERFILE.to_string();
-    let fetch_dockerfile = fetch_dockerfile.replace("$rust_version", rust_version.as_deref().unwrap_or("latest"));
 
     docker_build(DockerBuildArgs {
         docker_args: fetch_docker_args.into_iter().map(String::from).collect(),
@@ -133,10 +133,9 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         verbose,
     })?;
 
-    let mut base_docker_args = vec!["."];
-    base_docker_args.append(&mut args_without_image_name);
-
     let base_tag = format!("build-rust-{profile}");
+    let mut base_docker_args = vec![];
+    base_docker_args.append(&mut args_without_image_name);
     base_docker_args.append(&mut vec!["--tag", &base_tag]);
 
     let build_profile_arg = if profile == "debug" {
@@ -168,6 +167,55 @@ fn get_features_flag(feature_set: &[&str]) -> String {
     } else {
         format!(" --features={}", feature_set.join(","))
     }
+}
+
+fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> Result<String, Error> {
+    let rust_toolchain_path = workspace_dir.join("rust-toolchain.toml");
+
+    let rustup_toolchain_override = "COPY rust-toolchain.toml rust-toolchain.toml\n  RUN cat rust-toolchain.toml | tomlq -t '.toolchain.profile = \"minimal\"' > rust-toolchain2.toml && mv rust-toolchain2.toml rust-toolchain.toml";
+    let rustup_update = "RUN rustup update";
+    let rustup_toolchain = rust_toolchain_path
+        .try_exists()
+        .ok()
+        .and_then(|exists| {
+            if exists {
+                Some(format!("{rustup_toolchain_override}\n  {rustup_update}"))
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| rustup_update.to_string());
+
+    let full_cargo_lock = fs::read_to_string(workspace_dir.join("Cargo.lock"))?.parse::<Value>()?;
+
+    let mut full_cargo_lock = match full_cargo_lock {
+        Value::Table(table) => table,
+        _ => return Err(Error::msg("unable to parse Cargo.lock: file is not a toml table")),
+    };
+
+    let cargo_lock_package = full_cargo_lock.remove("package").ok_or_else(|| Error::msg("unable to parse Cargo.lock: no package field found"))?;
+
+    let packages = match cargo_lock_package {
+        Value::Array(packages) => packages,
+        _ => return Err(Error::msg("unable to parse Cargo.lock: no package field is not an array")),
+    };
+    let packages = packages
+        .into_iter()
+        .filter(|package| match package {
+            Value::Table(table) => table.contains_key("source") && table.contains_key("checksum"),
+            _ => true,
+        })
+        .collect();
+
+    let fetch_cargo_lock_toml = Value::Table(toml::value::Map::from_iter([("package".to_string(), Value::Array(packages))]));
+    let fetch_cargo_lock_toml = toml::ser::to_string(&fetch_cargo_lock_toml)?;
+
+    let fetch_dockerfile = FETCH_DOCKERFILE
+        .replace("$rust_version", rust_version.as_ref().map(|x| &**x).unwrap_or_else(|| "latest"))
+        .replace("$rustup_toolchain", &rustup_toolchain)
+        .replace("$fetch_cargo_lock", &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"));
+
+    Ok(fetch_dockerfile)
 }
 
 fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec<&str>], copy: &[String], pre_build_omit: &[String]) -> Result<String, Error> {

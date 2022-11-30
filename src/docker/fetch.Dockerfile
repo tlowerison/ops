@@ -11,15 +11,26 @@ FROM rust:$rust_version AS fetch-rust
   RUN apt-get -y install jq python3-pip
   RUN pip3 install yq
 
-  COPY rust-toolchain.toml rust-toolchain.toml
-  RUN rustup update
+  # conditionally copy rust-toolchain.toml (setting toolchain.profile to "minimal") and run rustup update
+  $rustup_toolchain
+
+  # install
   RUN echo '[package]\nname = "temp"\nversion = "0.0.0"\nedition = "2021"' > Cargo.toml
   RUN mkdir src && echo "fn main() {}" > src/main.rs
   RUN cargo fetch
   RUN rm -rf src
 
+  # registry configuration hack to try to avoid "Updating crates.io index" slowdown
+  RUN mkdir .cargo && touch .cargo/config.toml
+  RUN echo '[source.crates-io]\n\
+registry = "git://github.com/rust-lang/crates.io-index.git"' >> .cargo/config.toml
+
+  # paste in a filtered Cargo.lock that omitted packages which do not have a source field,
+  # as those packages are local crates and will cause churn in the Cargo.lock, resulting
+  # in full rebuilds anytime a local crate changes one of its dependencies
+  $fetch_cargo_lock
+
   COPY Cargo.toml Cargo.toml
-  COPY Cargo.lock Cargo.lock
 
   # only include root-level crates to start
   RUN cat Cargo.toml | tomlq -t '. | setpath(["workspace", "members"]; ["rust_build"]) | setpath(["workspace", "exclude"]; [])' | tomlq -t '. | delpaths([["workspace", "dependencies"]])' > Cargo2.toml

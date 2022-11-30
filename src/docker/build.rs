@@ -189,21 +189,32 @@ pub struct DockerImageName<'a> {
 }
 
 pub fn get_docker_image_name(docker_args: &[String]) -> Result<DockerImageName<'_>, Error> {
+    let mut tag_index = None;
+    let mut tag_slice_index = 0;
+    let mut omit_indices = std::collections::HashSet::new();
     for (i, arg) in docker_args.iter().enumerate() {
         if (arg == "-t" || arg == "--tag") && docker_args.len() > i + 1 {
-            return Ok(DockerImageName {
-                image_name: &docker_args[i + 1],
-                args_without_image_name: docker_args.iter().enumerate().filter_map(|(j, arg)| if j == i || j == i + 1 { Some(&**arg) } else { None }).collect(),
-            });
+            omit_indices.insert(i);
+            omit_indices.insert(i + 1);
+            tag_index = Some(i + 1);
         }
         if arg.len() >= 6 && &arg[..6] == "--tag=" {
-            return Ok(DockerImageName {
-                image_name: &docker_args[i][6..],
-                args_without_image_name: docker_args.iter().enumerate().filter_map(|(j, arg)| if j == i { Some(&**arg) } else { None }).collect(),
-            });
+            omit_indices.insert(i);
+            tag_index = Some(i);
+            tag_slice_index = 6;
         }
     }
-    Err(Error::msg("no image tag found"))
+    match tag_index {
+        None => Err(Error::msg("no image tag found")),
+        Some(tag_index) => Ok(DockerImageName {
+            image_name: &docker_args[tag_index][tag_slice_index..],
+            args_without_image_name: docker_args
+                .iter()
+                .enumerate()
+                .filter_map(|(i, arg)| if omit_indices.contains(&i) { None } else { Some(&**arg) })
+                .collect(),
+        }),
+    }
 }
 
 fn get_repo_from_image_name(image_name: &str) -> Result<&str, Error> {
