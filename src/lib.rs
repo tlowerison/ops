@@ -1,7 +1,5 @@
 #[macro_use]
 extern crate lazy_static;
-#[macro_use]
-extern crate serde;
 
 pub mod docker;
 pub mod eslint;

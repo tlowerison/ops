@@ -1,4 +1,4 @@
-FROM $base_image as pre-build-$service-$profile
+FROM pre-build-rust-workspace-deps-$profile as pre-build-$service-$profile
   WORKDIR /app
 
   RUN ls -a .
@@ -39,21 +39,3 @@ FROM $base_image as pre-build-$service-$profile
   $pre_build
 
   RUN rm -rf src
-
-FROM pre-build-$service-$profile as build-$service-$profile
-
-  COPY $service/ ./
-
-  $build
-
-FROM debian:11-slim
-  WORKDIR /app
-
-  RUN apt-get update
-  RUN apt-get -y install \
-    ca-certificates \
-    libpq5 \
-    libssl-dev
-  RUN rm -rf /var/lib/apt/lists/*
-
-  $binary_copy

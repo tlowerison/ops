@@ -1,5 +1,5 @@
 # should only be used as a build stage for subsequent images, otherwise image sizes will be > 1Gb
-FROM rust:$rust_version AS fetch-rust
+FROM rust:$rust_version AS fetch-rust-workspace-deps
 
   # Download public key for github.com
   RUN mkdir -p -m 0700 ~/.ssh

@@ -1,0 +1,17 @@
+FROM pre-build-$service-$profile as build-$service-$profile
+
+  COPY $service/ ./
+
+  $build
+
+FROM debian:11-slim
+  WORKDIR /app
+
+  RUN apt-get update
+  RUN apt-get -y install \
+    ca-certificates \
+    libpq5 \
+    libssl-dev
+  RUN rm -rf /var/lib/apt/lists/*
+
+  $binary_copy

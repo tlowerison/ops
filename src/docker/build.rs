@@ -52,10 +52,6 @@ pub struct DockerBuildArgs {
     #[clap(short, long)]
     pub ignore_file: Option<PathBuf>,
 
-    /// push image to image repository after successful build
-    #[clap(short, long)]
-    pub push: Option<String>,
-
     /// log commands prior to running them
     #[clap(short, long)]
     pub verbose: bool,
@@ -65,26 +61,14 @@ pub struct DockerBuildArgs {
     pub docker_args: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "provider", rename_all = "snake_case")]
-pub enum DockerBuildPush {
-    Aws { region: String },
-}
-
 pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
     let DockerBuildArgs {
         docker_args,
         file: docker_file,
         file_text,
         ignore_file,
-        push,
         verbose,
     } = docker_build_args;
-
-    let push = push
-        .as_ref()
-        .map(|x| serde_urlencoded::from_str::<DockerBuildPush>(x))
-        .transpose()?;
 
     let cwd = env::current_dir()?;
 
@@ -94,7 +78,6 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
         docker_file,
         ignore_file,
     } = get_docker_file_and_docker_ignore_file(cwd, file_text, docker_file, ignore_file, verbose)?;
-    let DockerImageName { image_name, .. } = get_docker_image_name(&docker_args)?;
 
     // NOTE: tmp_dir and all of its contents are deleted on drop, only need
     let tmp_dir = tempfile::tempdir()?;
@@ -172,102 +155,27 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
         )));
     }
 
-    println!("successfully built image: {image_name}");
-
-    if let Some(push) = push {
-        match push {
-            DockerBuildPush::Aws { region } => {
-                let repo = get_repo_from_image_name(image_name)?;
-
-                if verbose {
-                    println!("{}", format!("aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {repo}").dimmed());
-                }
-
-                let mut aws_ecr_get_login_password = Command::new("aws")
-                    .args(["ecr", "get-login-password"])
-                    .args(["--region", &region])
-                    .stdin(Stdio::inherit())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::inherit())
-                    .spawn()?;
-
-                let output = Command::new("docker")
-                    .arg("login")
-                    .args(["--username", "AWS"])
-                    .args(["--password-stdin", repo])
-                    .stdin(aws_ecr_get_login_password.stdout.take().unwrap())
-                    .output()?;
-
-                if !output.status.success() {
-                    return Err(Error::msg(format!(
-                        "docker login failed with status {}",
-                        output.status.code().unwrap()
-                    )));
-                }
-
-                if verbose {
-                    println!("{}", format!("docker push {image_name}").dimmed());
-                }
-
-                let output = Command::new("docker")
-                    .args(["push", image_name])
-                    .stdin(Stdio::inherit())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit())
-                    .output()?;
-
-                if !output.status.success() {
-                    return Err(Error::msg(format!(
-                        "docker push failed with status {}",
-                        output.status.code().unwrap()
-                    )));
-                }
-            }
-        }
-    }
+    println!("successfully built image");
 
     Ok(())
 }
 
-pub struct DockerImageName<'a> {
-    pub image_name: &'a str,
-    pub args_without_image_name: Vec<&'a str>,
-}
-
-pub fn get_docker_image_name(docker_args: &[String]) -> Result<DockerImageName<'_>, Error> {
-    let mut tag_index = None;
-    let mut tag_slice_index = 0;
+pub fn get_docker_args_without_image_tag(docker_args: &[String]) -> Vec<&str> {
     let mut omit_indices = std::collections::HashSet::new();
     for (i, arg) in docker_args.iter().enumerate() {
         if (arg == "-t" || arg == "--tag") && docker_args.len() > i + 1 {
             omit_indices.insert(i);
             omit_indices.insert(i + 1);
-            tag_index = Some(i + 1);
         }
         if arg.len() >= 6 && &arg[..6] == "--tag=" {
             omit_indices.insert(i);
-            tag_index = Some(i);
-            tag_slice_index = 6;
         }
     }
-    match tag_index {
-        None => Err(Error::msg("no image tag found")),
-        Some(tag_index) => Ok(DockerImageName {
-            image_name: &docker_args[tag_index][tag_slice_index..],
-            args_without_image_name: docker_args
-                .iter()
-                .enumerate()
-                .filter_map(|(i, arg)| if omit_indices.contains(&i) { None } else { Some(&**arg) })
-                .collect(),
-        }),
-    }
-}
-
-fn get_repo_from_image_name(image_name: &str) -> Result<&str, Error> {
-    Ok(image_name
-        .split_once('/')
-        .ok_or_else(|| Error::msg("cannot parse image repo from image name: no `/` character found in image name"))?
-        .0)
+    docker_args
+        .iter()
+        .enumerate()
+        .filter_map(|(i, arg)| if omit_indices.contains(&i) { None } else { Some(&**arg) })
+        .collect()
 }
 
 #[derive(Clone, Debug)]

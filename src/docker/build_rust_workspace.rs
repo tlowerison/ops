@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 use toml::Value;
 
-const FETCH_DOCKERFILE: &str = include_str!("fetch.Dockerfile");
-const BASE_DOCKERFILE: &str = include_str!("base.Dockerfile");
-const SERVICE_DOCKERFILE: &str = include_str!("service.Dockerfile");
+const FETCH_RUST_WORKSPACE_DEPS_DOCKERFILE: &str = include_str!("Dockerfile.fetch_rust_workspace_deps");
+const PRE_BUILD_RUST_WORKSPACE_DEPS_DOCKERFILE: &str = include_str!("Dockerfile.pre_build_rust_workspace_deps");
+const PRE_BUILD_SERVICE_DOCKERFILE: &str = include_str!("Dockerfile.pre_build_service");
+const BUILD_SERVICE_DOCKERFILE: &str = include_str!("Dockerfile.build_service");
 
 #[derive(Clone, Debug, Parser)]
 #[clap(author, version, about, long_about = None, trailing_var_arg=true)]
@@ -43,10 +44,6 @@ pub struct DockerBuildRustWorkspaceArgs {
     #[clap(long)]
     pub profile: Option<String>,
 
-    /// push image to image repository after successful build
-    #[clap(long)]
-    pub push: Option<String>,
-
     /// rust docker image version -- actual rust version used in built binaries should be
     /// specified with a workspace level rust-toolchain.toml file -- defaults to latest
     #[clap(short, long)]
@@ -74,7 +71,6 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         ignore_file,
         pre_build_omit,
         profile,
-        push,
         rust_version,
         service: provided_service_dir,
         verbose,
@@ -112,37 +108,30 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     let workspace_dir = get_workspace_dir(&service_dir)?;
     env::set_current_dir(workspace_dir)?;
 
+    let args_without_image_tag = get_docker_args_without_image_tag(&docker_args)
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>();
     let profile = profile.unwrap_or_else(|| "release".to_string());
+    let build_profile = if profile == "debug" {
+        "".to_string()
+    } else if profile == "release" {
+        " --release".to_string()
+    } else {
+        format!(" --profile={profile}")
+    };
 
-    let fetch_dockerfile = get_fetch_dockerfile(workspace_dir, &rust_version)?;
-
-    let base_dockerfile = get_base_dockerfile(&profile);
-
-    let service_dockerfile = get_service_dockerfile(service_name, &profile, &feature_sets, &copy, &pre_build_omit)?;
-
-    let DockerImageName {
-        mut args_without_image_name,
-        ..
-    } = get_docker_image_name(&docker_args)?;
-
-    let mut fetch_docker_args = vec![];
-    fetch_docker_args.append(&mut args_without_image_name.clone());
-    fetch_docker_args.append(&mut vec!["--tag", "fetch-rust"]);
-
+    // fetch-rust-workspace-deps
     docker_build(DockerBuildArgs {
-        docker_args: fetch_docker_args.into_iter().map(String::from).collect(),
+        docker_args: args_without_image_tag.clone(),
         file: None,
-        file_text: Some(fetch_dockerfile),
-        push: None,
+        file_text: Some(get_fetch_rust_workspace_deps_dockerfile(workspace_dir, &rust_version)?),
         ignore_file: ignore_file.clone(),
         verbose,
     })?;
 
-    let base_tag = format!("build-rust-{profile}");
-    let mut base_docker_args = vec![];
-    base_docker_args.append(&mut args_without_image_name);
-    base_docker_args.append(&mut vec!["--tag", &base_tag]);
-
+    // pre-build-rust-workspace-deps-$profile
+    let mut pre_build_rust_workspace_deps_docker_args = args_without_image_tag;
     let build_profile_arg = if profile == "debug" {
         "build_profile=".to_string()
     } else if profile == "release" {
@@ -150,23 +139,42 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     } else {
         format!("build_profile=--profile={profile}")
     };
-    base_docker_args.append(&mut vec!["--build-arg", &build_profile_arg]);
-
+    pre_build_rust_workspace_deps_docker_args.append(&mut vec!["--build-arg".to_string(), build_profile_arg]);
     docker_build(DockerBuildArgs {
-        docker_args: base_docker_args.into_iter().map(String::from).collect(),
+        docker_args: pre_build_rust_workspace_deps_docker_args,
         file: None,
-        file_text: Some(base_dockerfile),
-        push: None,
+        file_text: Some(get_pre_build_rust_workspace_deps_dockerfile(&profile)),
         ignore_file: ignore_file.clone(),
         verbose,
     })?;
 
+    // pre-build-$service-$profile
+    docker_build(DockerBuildArgs {
+        docker_args: docker_args.clone(),
+        file: None,
+        file_text: Some(get_pre_build_service_dockerfile(
+            service_name,
+            &profile,
+            &build_profile,
+            &feature_sets,
+            &copy,
+            &pre_build_omit,
+        )?),
+        ignore_file: ignore_file.clone(),
+        verbose,
+    })?;
+
+    // build-$service-$profile
     docker_build(DockerBuildArgs {
         file: None,
-        file_text: Some(service_dockerfile),
+        file_text: Some(get_build_service_dockerfile(
+            service_name,
+            &profile,
+            &build_profile,
+            &feature_sets,
+        )?),
         docker_args,
         ignore_file,
-        push,
         verbose,
     })?;
 
@@ -181,7 +189,10 @@ fn get_features_flag(feature_set: &[&str]) -> String {
     }
 }
 
-fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> Result<String, Error> {
+fn get_fetch_rust_workspace_deps_dockerfile(
+    workspace_dir: &Path,
+    rust_version: &Option<String>,
+) -> Result<String, Error> {
     let rust_toolchain_path = workspace_dir.join("rust-toolchain.toml");
 
     let rustup_toolchain_override = "COPY rust-toolchain.toml rust-toolchain.toml\n  RUN cat rust-toolchain.toml | tomlq -t '.toolchain.profile = \"minimal\"' > rust-toolchain2.toml && mv rust-toolchain2.toml rust-toolchain.toml";
@@ -225,7 +236,7 @@ fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> 
     )]));
     let fetch_cargo_lock_toml = toml::ser::to_string(&fetch_cargo_lock_toml)?;
 
-    let fetch_dockerfile = FETCH_DOCKERFILE
+    let fetch_rust_workspace_deps_dockerfile = FETCH_RUST_WORKSPACE_DEPS_DOCKERFILE
         .replace(
             "$rust_version",
             rust_version.as_ref().map(|x| &**x).unwrap_or_else(|| "latest"),
@@ -236,24 +247,24 @@ fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> 
             &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"),
         );
 
-    Ok(fetch_dockerfile)
+    Ok(fetch_rust_workspace_deps_dockerfile)
 }
 
-fn get_base_dockerfile(profile: &str) -> String {
-    BASE_DOCKERFILE.replace("$profile", profile)
+fn get_pre_build_rust_workspace_deps_dockerfile(profile: &str) -> String {
+    PRE_BUILD_RUST_WORKSPACE_DEPS_DOCKERFILE.replace("$profile", profile)
 }
 
-fn get_service_dockerfile(
+fn get_pre_build_service_dockerfile(
     service_name: &str,
     profile: &str,
+    build_profile: &str,
     feature_sets: &[Vec<&str>],
     copy: &[String],
     pre_build_omit: &[String],
 ) -> Result<String, Error> {
-    let service_dockerfile = SERVICE_DOCKERFILE
+    let pre_build_service_dockerfile = PRE_BUILD_SERVICE_DOCKERFILE
         .replace("$service", service_name)
-        .replace("$profile", profile)
-        .replace("$base_image", &format!("build-rust-{profile}"));
+        .replace("$profile", profile);
 
     let mut additional_copies = copy
         .iter()
@@ -273,7 +284,7 @@ fn get_service_dockerfile(
         additional_copies = format!("\n\n{additional_copies}");
     }
 
-    let service_dockerfile = service_dockerfile.replace("$file_copy", &additional_copies);
+    let pre_build_service_dockerfile = pre_build_service_dockerfile.replace("$file_copy", &additional_copies);
 
     let pre_build_omit_deps = format!(
         r#"'{{{}}}'"#,
@@ -283,15 +294,8 @@ fn get_service_dockerfile(
             .collect::<Vec<_>>()
             .join(",")
     );
-    let service_dockerfile = service_dockerfile.replace("$pre_build_omit_deps", &pre_build_omit_deps);
-
-    let build_profile = if profile == "debug" {
-        "".to_string()
-    } else if profile == "release" {
-        " --release".to_string()
-    } else {
-        format!(" --profile={profile}")
-    };
+    let pre_build_service_dockerfile =
+        pre_build_service_dockerfile.replace("$pre_build_omit_deps", &pre_build_omit_deps);
 
     let mut service_docker_pre_builds = feature_sets
         .iter()
@@ -301,7 +305,21 @@ fn get_service_dockerfile(
         "  RUN rm /app/target/{profile}/rust_build && rm /app/target/{profile}/{service_name}"
     ));
 
-    let service_dockerfile = service_dockerfile.replace("$pre_build", service_docker_pre_builds.join("\n").trim());
+    let pre_build_service_dockerfile =
+        pre_build_service_dockerfile.replace("$pre_build", service_docker_pre_builds.join("\n").trim());
+
+    Ok(pre_build_service_dockerfile)
+}
+
+fn get_build_service_dockerfile(
+    service_name: &str,
+    profile: &str,
+    build_profile: &str,
+    feature_sets: &[Vec<&str>],
+) -> Result<String, Error> {
+    let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE
+        .replace("$service", service_name)
+        .replace("$profile", profile);
 
     let service_docker_build_binaries = feature_sets
         .iter()
@@ -316,7 +334,8 @@ fn get_service_dockerfile(
         })
         .collect::<Vec<_>>();
 
-    let service_dockerfile = service_dockerfile.replace("$build", service_docker_build_binaries.join("\n").trim());
+    let build_service_dockerfile =
+        build_service_dockerfile.replace("$build", service_docker_build_binaries.join("\n").trim());
 
     let service_docker_copy_binaries = feature_sets
         .iter()
@@ -326,9 +345,10 @@ fn get_service_dockerfile(
         })
         .collect::<Vec<_>>();
 
-    let service_dockerfile = service_dockerfile.replace("$binary_copy", service_docker_copy_binaries.join("\n").trim());
+    let build_service_dockerfile =
+        build_service_dockerfile.replace("$binary_copy", service_docker_copy_binaries.join("\n").trim());
 
-    Ok(service_dockerfile)
+    Ok(build_service_dockerfile)
 }
 
 fn get_workspace_dir(service_dir: &Path) -> Result<&Path, Error> {
