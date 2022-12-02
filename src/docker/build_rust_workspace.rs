@@ -3,7 +3,7 @@ use anyhow::Error;
 use clap::Parser;
 use path_absolutize::*;
 use std::path::{Path, PathBuf};
-use std::{env, fs};
+use std::{env, fs, iter::once};
 use toml::Value;
 
 const FETCH_RUST_WORKSPACE_DEPS_DOCKERFILE: &str = include_str!("Dockerfile.fetch_rust_workspace_deps");
@@ -123,7 +123,11 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
 
     // fetch-rust-workspace-deps
     docker_build(DockerBuildArgs {
-        docker_args: args_without_image_tag.clone(),
+        docker_args: args_without_image_tag
+            .clone()
+            .into_iter()
+            .chain(once("--tag=fetch-rust-workspace-deps".to_string()))
+            .collect(),
         file: None,
         file_text: Some(get_fetch_rust_workspace_deps_dockerfile(workspace_dir, &rust_version)?),
         ignore_file: ignore_file.clone(),
@@ -141,7 +145,10 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     };
     pre_build_rust_workspace_deps_docker_args.append(&mut vec!["--build-arg".to_string(), build_profile_arg]);
     docker_build(DockerBuildArgs {
-        docker_args: pre_build_rust_workspace_deps_docker_args,
+        docker_args: pre_build_rust_workspace_deps_docker_args
+            .into_iter()
+            .chain(once(format!("--tag=pre-build-rust-workspace-deps-{profile}")))
+            .collect(),
         file: None,
         file_text: Some(get_pre_build_rust_workspace_deps_dockerfile(&profile)),
         ignore_file: ignore_file.clone(),
@@ -150,7 +157,11 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
 
     // pre-build-$service-$profile
     docker_build(DockerBuildArgs {
-        docker_args: docker_args.clone(),
+        docker_args: docker_args
+            .clone()
+            .into_iter()
+            .chain(once(format!("--tag=pre-build-{service_name}-{profile}")))
+            .collect(),
         file: None,
         file_text: Some(get_pre_build_service_dockerfile(
             service_name,
