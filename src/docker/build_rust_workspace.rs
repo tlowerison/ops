@@ -108,10 +108,9 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     let workspace_dir = get_workspace_dir(&service_dir)?;
     env::set_current_dir(workspace_dir)?;
 
-    let args_without_image_tag = get_docker_args_without_image_tag(&docker_args)
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<_>>();
+    let SplitDockerArgs { tag, other } = split_docker_args(&docker_args)?;
+    let repo = get_repo_from_tag(tag)?;
+    let args_without_image_tag = other.into_iter().map(String::from).collect::<Vec<_>>();
     let profile = profile.unwrap_or_else(|| "release".to_string());
     let build_profile = if profile == "debug" {
         "".to_string()
@@ -126,7 +125,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         docker_args: args_without_image_tag
             .clone()
             .into_iter()
-            .chain(once("--tag=fetch-rust-workspace-deps".to_string()))
+            .chain(once(format!("--tag={repo}/fetch-rust-workspace-deps")))
             .collect(),
         file: None,
         file_text: Some(get_fetch_rust_workspace_deps_dockerfile(workspace_dir, &rust_version)?),
@@ -147,7 +146,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     docker_build(DockerBuildArgs {
         docker_args: pre_build_rust_workspace_deps_docker_args
             .into_iter()
-            .chain(once(format!("--tag=pre-build-rust-workspace-deps-{profile}")))
+            .chain(once(format!("--tag={repo}/pre-build-rust-workspace-deps-{profile}")))
             .collect(),
         file: None,
         file_text: Some(get_pre_build_rust_workspace_deps_dockerfile(&profile)),
@@ -160,7 +159,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         docker_args: docker_args
             .clone()
             .into_iter()
-            .chain(once(format!("--tag=pre-build-{service_name}-{profile}")))
+            .chain(once(format!("--tag={repo}/pre-build-{service_name}-{profile}")))
             .collect(),
         file: None,
         file_text: Some(get_pre_build_service_dockerfile(

@@ -160,22 +160,36 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn get_docker_args_without_image_tag(docker_args: &[String]) -> Vec<&str> {
+pub struct SplitDockerArgs<'a> {
+    pub tag: &'a str,
+    pub other: Vec<&'a str>,
+}
+
+pub fn split_docker_args(docker_args: &[String]) -> Result<SplitDockerArgs<'_>, Error> {
+    let mut tag_index = None;
+    let mut tag_slice_index = 0;
     let mut omit_indices = std::collections::HashSet::new();
     for (i, arg) in docker_args.iter().enumerate() {
         if (arg == "-t" || arg == "--tag") && docker_args.len() > i + 1 {
             omit_indices.insert(i);
             omit_indices.insert(i + 1);
+            tag_index = Some(i + 1);
         }
         if arg.len() >= 6 && &arg[..6] == "--tag=" {
             omit_indices.insert(i);
+            tag_index = Some(i);
+            tag_slice_index = 6;
         }
     }
-    docker_args
-        .iter()
-        .enumerate()
-        .filter_map(|(i, arg)| if omit_indices.contains(&i) { None } else { Some(&**arg) })
-        .collect()
+    let tag_index = tag_index.ok_or_else(|| Error::msg("no image tag provided"))?;
+    Ok(SplitDockerArgs {
+        tag: &docker_args[tag_index][tag_slice_index..],
+        other: docker_args
+            .iter()
+            .enumerate()
+            .filter_map(|(i, arg)| if omit_indices.contains(&i) { None } else { Some(&**arg) })
+            .collect(),
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -318,4 +332,11 @@ fn get_docker_file_and_docker_ignore_file(
         docker_file: read_to_string(docker_file)?,
         ignore_file: ignore_file.map(read_to_string).transpose()?,
     })
+}
+
+pub fn get_repo_from_tag(tag: &str) -> Result<&str, Error> {
+    Ok(tag
+        .split_once('/')
+        .ok_or_else(|| Error::msg("cannot parse image repo from image name: no `/` character found in image name"))?
+        .0)
 }
