@@ -116,6 +116,8 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
 
     let fetch_dockerfile = get_fetch_dockerfile(workspace_dir, &rust_version)?;
 
+    let base_dockerfile = get_base_dockerfile(&profile);
+
     let service_dockerfile = get_service_dockerfile(service_name, &profile, &feature_sets, &copy, &pre_build_omit)?;
 
     let DockerImageName { mut args_without_image_name, .. } = get_docker_image_name(&docker_args)?;
@@ -150,7 +152,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     docker_build(DockerBuildArgs {
         docker_args: base_docker_args.into_iter().map(String::from).collect(),
         file: None,
-        file_text: Some(BASE_DOCKERFILE.to_string()),
+        file_text: Some(base_dockerfile),
         push: None,
         ignore_file: ignore_file.clone(),
         verbose,
@@ -216,6 +218,10 @@ fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> 
         .replace("$fetch_cargo_lock", &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"));
 
     Ok(fetch_dockerfile)
+}
+
+fn get_base_dockerfile(profile: &str) -> String {
+    BASE_DOCKERFILE.replace("$image_name_profile", profile)
 }
 
 fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec<&str>], copy: &[String], pre_build_omit: &[String]) -> Result<String, Error> {
