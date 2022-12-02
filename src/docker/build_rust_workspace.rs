@@ -120,7 +120,10 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
 
     let service_dockerfile = get_service_dockerfile(service_name, &profile, &feature_sets, &copy, &pre_build_omit)?;
 
-    let DockerImageName { mut args_without_image_name, .. } = get_docker_image_name(&docker_args)?;
+    let DockerImageName {
+        mut args_without_image_name,
+        ..
+    } = get_docker_image_name(&docker_args)?;
 
     let mut fetch_docker_args = vec![];
     fetch_docker_args.append(&mut args_without_image_name.clone());
@@ -158,7 +161,14 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         verbose,
     })?;
 
-    docker_build(DockerBuildArgs { file: None, file_text: Some(service_dockerfile), docker_args, ignore_file, push, verbose })?;
+    docker_build(DockerBuildArgs {
+        file: None,
+        file_text: Some(service_dockerfile),
+        docker_args,
+        ignore_file,
+        push,
+        verbose,
+    })?;
 
     Ok(())
 }
@@ -189,11 +199,17 @@ fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> 
         _ => return Err(Error::msg("unable to parse Cargo.lock: file is not a toml table")),
     };
 
-    let cargo_lock_package = full_cargo_lock.remove("package").ok_or_else(|| Error::msg("unable to parse Cargo.lock: no package field found"))?;
+    let cargo_lock_package = full_cargo_lock
+        .remove("package")
+        .ok_or_else(|| Error::msg("unable to parse Cargo.lock: no package field found"))?;
 
     let packages = match cargo_lock_package {
         Value::Array(packages) => packages,
-        _ => return Err(Error::msg("unable to parse Cargo.lock: no package field is not an array")),
+        _ => {
+            return Err(Error::msg(
+                "unable to parse Cargo.lock: no package field is not an array",
+            ))
+        }
     };
     let packages = packages
         .into_iter()
@@ -203,13 +219,22 @@ fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> 
         })
         .collect();
 
-    let fetch_cargo_lock_toml = Value::Table(toml::value::Map::from_iter([("package".to_string(), Value::Array(packages))]));
+    let fetch_cargo_lock_toml = Value::Table(toml::value::Map::from_iter([(
+        "package".to_string(),
+        Value::Array(packages),
+    )]));
     let fetch_cargo_lock_toml = toml::ser::to_string(&fetch_cargo_lock_toml)?;
 
     let fetch_dockerfile = FETCH_DOCKERFILE
-        .replace("$rust_version", rust_version.as_ref().map(|x| &**x).unwrap_or_else(|| "latest"))
+        .replace(
+            "$rust_version",
+            rust_version.as_ref().map(|x| &**x).unwrap_or_else(|| "latest"),
+        )
         .replace("$rustup_toolchain", &rustup_toolchain)
-        .replace("$fetch_cargo_lock", &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"));
+        .replace(
+            "$fetch_cargo_lock",
+            &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"),
+        );
 
     Ok(fetch_dockerfile)
 }
@@ -218,9 +243,17 @@ fn get_base_dockerfile(profile: &str) -> String {
     BASE_DOCKERFILE.replace("$profile", profile)
 }
 
-fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec<&str>], copy: &[String], pre_build_omit: &[String]) -> Result<String, Error> {
-    let service_dockerfile =
-        SERVICE_DOCKERFILE.replace("$service", service_name).replace("$profile", profile).replace("$base_image", &format!("build-rust-{profile}"));
+fn get_service_dockerfile(
+    service_name: &str,
+    profile: &str,
+    feature_sets: &[Vec<&str>],
+    copy: &[String],
+    pre_build_omit: &[String],
+) -> Result<String, Error> {
+    let service_dockerfile = SERVICE_DOCKERFILE
+        .replace("$service", service_name)
+        .replace("$profile", profile)
+        .replace("$base_image", &format!("build-rust-{profile}"));
 
     let mut additional_copies = copy
         .iter()
@@ -242,7 +275,14 @@ fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec
 
     let service_dockerfile = service_dockerfile.replace("$file_copy", &additional_copies);
 
-    let pre_build_omit_deps = format!(r#"'{{{}}}'"#, pre_build_omit.iter().map(|x| format!(r#""{x}": true"#)).collect::<Vec<_>>().join(","));
+    let pre_build_omit_deps = format!(
+        r#"'{{{}}}'"#,
+        pre_build_omit
+            .iter()
+            .map(|x| format!(r#""{x}": true"#))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
     let service_dockerfile = service_dockerfile.replace("$pre_build_omit_deps", &pre_build_omit_deps);
 
     let build_profile = if profile == "debug" {
@@ -253,9 +293,13 @@ fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec
         format!(" --profile={profile}")
     };
 
-    let mut service_docker_pre_builds =
-        feature_sets.iter().map(|feature_set| format!("  RUN cargo build{build_profile}{}", get_features_flag(feature_set))).collect::<Vec<_>>();
-    service_docker_pre_builds.push(format!("  RUN rm /app/target/{profile}/rust_build && rm /app/target/{profile}/{service_name}"));
+    let mut service_docker_pre_builds = feature_sets
+        .iter()
+        .map(|feature_set| format!("  RUN cargo build{build_profile}{}", get_features_flag(feature_set)))
+        .collect::<Vec<_>>();
+    service_docker_pre_builds.push(format!(
+        "  RUN rm /app/target/{profile}/rust_build && rm /app/target/{profile}/{service_name}"
+    ));
 
     let service_dockerfile = service_dockerfile.replace("$pre_build", service_docker_pre_builds.join("\n").trim());
 
@@ -290,7 +334,9 @@ fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec
 fn get_workspace_dir(service_dir: &Path) -> Result<&Path, Error> {
     let mut dir = service_dir;
     Ok(loop {
-        dir = dir.parent().ok_or_else(|| Error::msg("unable to locate cargo workspace root"))?;
+        dir = dir
+            .parent()
+            .ok_or_else(|| Error::msg("unable to locate cargo workspace root"))?;
         let manifest_path = dir.join("Cargo.toml");
         if manifest_path.exists() {
             let manifest = fs::read_to_string(manifest_path)?.parse::<Value>()?;

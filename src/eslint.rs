@@ -29,7 +29,11 @@ pub struct EslintArgs {
 }
 
 pub fn eslint(eslint_args: EslintArgs) -> Result<(), Error> {
-    let EslintArgs { pre_commit_config_path, verbose, eslint_args } = eslint_args;
+    let EslintArgs {
+        pre_commit_config_path,
+        verbose,
+        eslint_args,
+    } = eslint_args;
 
     let file_regex = get_eslint_file_regex(pre_commit_config_path)?;
 
@@ -59,10 +63,22 @@ pub fn eslint(eslint_args: EslintArgs) -> Result<(), Error> {
         println!("{}", format!("eslint --fix {}", js_file_names.join(" ")).dimmed());
     }
 
-    let output = Command::new("echo").arg("eslint").args(eslint_args).args(js_file_names).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
+    let output = Command::new("echo")
+        .arg("eslint")
+        .args(eslint_args)
+        .args(js_file_names)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()?;
 
     if !output.status.success() {
-        return Err(Error::msg(output.status.code().map(|code| format!("eslint failed with status {code}")).unwrap_or_else(|| String::from("eslint failed"))));
+        return Err(Error::msg(
+            output
+                .status
+                .code()
+                .map(|code| format!("eslint failed with status {code}"))
+                .unwrap_or_else(|| String::from("eslint failed")),
+        ));
     }
 
     Ok(())
@@ -82,8 +98,8 @@ fn get_eslint_file_regex(pre_commit_config_path: Option<PathBuf>) -> Result<Rege
     let pre_commit_config_path_display = pre_commit_config_path.display();
 
     let pre_commit_config_text = fs::read_to_string(&pre_commit_config_path)?;
-    let pre_commit_config: Value =
-        serde_yaml::from_str(&pre_commit_config_text).map_err(|err| Error::msg(format!("unable to parse `{pre_commit_config_path_display}`: {err}")))?;
+    let pre_commit_config: Value = serde_yaml::from_str(&pre_commit_config_text)
+        .map_err(|err| Error::msg(format!("unable to parse `{pre_commit_config_path_display}`: {err}")))?;
 
     let eslint_hook_config = pre_commit_config
         .get("repos")
@@ -120,8 +136,11 @@ fn get_eslint_file_regex(pre_commit_config_path: Option<PathBuf>) -> Result<Rege
         .map(|exclude| exclude.as_str().ok_or_else(|| Error::msg(format!("unable to parse `{pre_commit_config_path_display}`: expected `repos[repo == \"local\"].hooks[id == \"eslint\"].exclude` to be a string, `exclude` should be a filter for the javascript file extensions to *not* lint (should be a valid regex non-capturing group i.e. looks like `(?!regex-here)`)"))))
         .transpose()?;
 
-    let eslint_hook_config_files = Regex::new(&eslint_hook_config_files)
-        .map_err(|err| Error::msg(format!("unable to parse `repos[repo == \"local\"].hooks[id == \"eslint\"].files` as a valid regex: {err}")))?;
+    let eslint_hook_config_files = Regex::new(&eslint_hook_config_files).map_err(|err| {
+        Error::msg(format!(
+            "unable to parse `repos[repo == \"local\"].hooks[id == \"eslint\"].files` as a valid regex: {err}"
+        ))
+    })?;
 
     let eslint_hook_config_exclude = eslint_hook_config_exclude
         .map(|eslint_hook_config_exclude| {

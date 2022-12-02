@@ -72,15 +72,28 @@ pub enum DockerBuildPush {
 }
 
 pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
-    let DockerBuildArgs { docker_args, file: docker_file, file_text, ignore_file, push, verbose } = docker_build_args;
+    let DockerBuildArgs {
+        docker_args,
+        file: docker_file,
+        file_text,
+        ignore_file,
+        push,
+        verbose,
+    } = docker_build_args;
 
-    let push = push.as_ref().map(|x| serde_urlencoded::from_str::<DockerBuildPush>(x)).transpose()?;
+    let push = push
+        .as_ref()
+        .map(|x| serde_urlencoded::from_str::<DockerBuildPush>(x))
+        .transpose()?;
 
     let cwd = env::current_dir()?;
 
     let cwd = Path::new(&cwd);
 
-    let DockerConfig { docker_file, ignore_file } = get_docker_file_and_docker_ignore_file(cwd, file_text, docker_file, ignore_file, verbose)?;
+    let DockerConfig {
+        docker_file,
+        ignore_file,
+    } = get_docker_file_and_docker_ignore_file(cwd, file_text, docker_file, ignore_file, verbose)?;
     let DockerImageName { image_name, .. } = get_docker_image_name(&docker_args)?;
 
     // NOTE: tmp_dir and all of its contents are deleted on drop, only need
@@ -88,13 +101,23 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
     let tmp_dir = tmp_dir.path();
 
     if verbose {
-        println!("{}", format!("created temporary directory for Dockerfile and .dockerignore at path: {}", tmp_dir.display()).dimmed());
+        println!(
+            "{}",
+            format!(
+                "created temporary directory for Dockerfile and .dockerignore at path: {}",
+                tmp_dir.display()
+            )
+            .dimmed()
+        );
     }
     let tmp_docker_file_path = tmp_dir.join("Dockerfile.tmp");
     let tmp_ignore_file_path = tmp_dir.join("Dockerfile.tmp.dockerignore");
 
     if verbose {
-        println!("{}", format!("creating Dockerfile at: {}", tmp_docker_file_path.display()).dimmed());
+        println!(
+            "{}",
+            format!("creating Dockerfile at: {}", tmp_docker_file_path.display()).dimmed()
+        );
     }
     let mut docker_file_file = File::create(&tmp_docker_file_path)?;
     if verbose {
@@ -102,12 +125,18 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
     }
 
     if verbose {
-        println!("{}", format!("writing to Dockerfile at path: {}", tmp_docker_file_path.display()).dimmed());
+        println!(
+            "{}",
+            format!("writing to Dockerfile at path: {}", tmp_docker_file_path.display()).dimmed()
+        );
     }
     writeln!(docker_file_file, "{docker_file}")?;
 
     if verbose {
-        println!("{}", format!("creating ignore file at: {}", tmp_ignore_file_path.display()).dimmed());
+        println!(
+            "{}",
+            format!("creating ignore file at: {}", tmp_ignore_file_path.display()).dimmed()
+        );
     }
     let mut ignore_file_file = File::create(&tmp_ignore_file_path)?;
     if verbose {
@@ -130,10 +159,17 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
         println!("{}", docker_file.dimmed());
     }
 
-    let output = Command::new(cmd).args(args).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
+    let output = Command::new(cmd)
+        .args(args)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()?;
 
     if !output.status.success() {
-        return Err(Error::msg(format!("docker failed with status {}", output.status.code().unwrap())));
+        return Err(Error::msg(format!(
+            "docker failed with status {}",
+            output.status.code().unwrap()
+        )));
     }
 
     println!("successfully built image: {image_name}");
@@ -163,18 +199,28 @@ pub fn docker_build(docker_build_args: DockerBuildArgs) -> Result<(), Error> {
                     .output()?;
 
                 if !output.status.success() {
-                    return Err(Error::msg(format!("docker login failed with status {}", output.status.code().unwrap())));
+                    return Err(Error::msg(format!(
+                        "docker login failed with status {}",
+                        output.status.code().unwrap()
+                    )));
                 }
 
                 if verbose {
                     println!("{}", format!("docker push {image_name}").dimmed());
                 }
 
-                let output =
-                    Command::new("docker").args(["push", image_name]).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).output()?;
+                let output = Command::new("docker")
+                    .args(["push", image_name])
+                    .stdin(Stdio::inherit())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .output()?;
 
                 if !output.status.success() {
-                    return Err(Error::msg(format!("docker push failed with status {}", output.status.code().unwrap())));
+                    return Err(Error::msg(format!(
+                        "docker push failed with status {}",
+                        output.status.code().unwrap()
+                    )));
                 }
             }
         }
@@ -218,7 +264,10 @@ pub fn get_docker_image_name(docker_args: &[String]) -> Result<DockerImageName<'
 }
 
 fn get_repo_from_image_name(image_name: &str) -> Result<&str, Error> {
-    Ok(image_name.split_once('/').ok_or_else(|| Error::msg("cannot parse image repo from image name: no `/` character found in image name"))?.0)
+    Ok(image_name
+        .split_once('/')
+        .ok_or_else(|| Error::msg("cannot parse image repo from image name: no `/` character found in image name"))?
+        .0)
 }
 
 #[derive(Clone, Debug)]
@@ -235,55 +284,80 @@ fn get_docker_file_and_docker_ignore_file(
     verbose: bool,
 ) -> Result<DockerConfig, Error> {
     if let Some(file_text) = file_text {
-        return Ok(DockerConfig { docker_file: file_text, ignore_file: ignore_file.map(read_to_string).transpose()? });
+        return Ok(DockerConfig {
+            docker_file: file_text,
+            ignore_file: ignore_file.map(read_to_string).transpose()?,
+        });
     }
 
     let docker_file = docker_file.unwrap_or_else(|| cwd.join("Dockerfile"));
 
     if !docker_file.exists() {
-        return Err(Error::msg(format!("no Dockerfile found at path: {}", docker_file.display())));
+        return Err(Error::msg(format!(
+            "no Dockerfile found at path: {}",
+            docker_file.display()
+        )));
     }
 
-    let docker_file_parent = docker_file.parent().ok_or_else(|| Error::msg(format!("unable to process path to Dockerfile: {}", docker_file.display())))?;
+    let docker_file_parent = docker_file.parent().ok_or_else(|| {
+        Error::msg(format!(
+            "unable to process path to Dockerfile: {}",
+            docker_file.display()
+        ))
+    })?;
 
     let docker_file_name = docker_file
         .file_name()
         .and_then(OsStr::to_str)
         .map(Path::new)
-        .ok_or_else(|| Error::msg(format!("unable to process path to Dockerfile: {}", docker_file.display())))?;
+        .ok_or_else(|| {
+            Error::msg(format!(
+                "unable to process path to Dockerfile: {}",
+                docker_file.display()
+            ))
+        })?;
 
     let ignore_files = match ignore_file {
         Some(x) => vec![x],
         None => {
             let docker_file_name_display = docker_file_name.display().to_string();
 
-            let mut ignore_files = if docker_file_name_display == "Dockerfile" || docker_file_name_display == ".Dockerfile" {
-                vec![]
-            } else if let Some("Dockerfile") = docker_file_name.extension().and_then(OsStr::to_str) {
-                let docker_file_stem = docker_file_name
-                    .file_stem()
-                    .and_then(OsStr::to_str)
-                    .map(Path::new)
-                    .ok_or_else(|| Error::msg(format!("unable to process path to Dockerfile: {}", docker_file.display())))?
-                    .display()
-                    .to_string()
-                    .replace(r"^\.+", "");
-                vec![docker_file_parent.join(format!(".{docker_file_stem}.dockerignore")), docker_file_parent.join(format!("{docker_file_stem}.dockerignore"))]
-            } else if docker_file_name_display.len() > 11 && &docker_file_name_display[..11] == "Dockerfile." {
-                let docker_file_suffix = &docker_file_name_display[11..];
-                vec![
-                    docker_file_parent.join(format!(".Dockerfile.{docker_file_suffix}.dockerignore")),
-                    docker_file_parent.join(format!("Dockerfile.{docker_file_suffix}.dockerignore")),
-                ]
-            } else if docker_file_name_display.len() > 12 && &docker_file_name_display[..12] == ".Dockerfile." {
-                let docker_file_suffix = &docker_file_name_display[12..];
-                vec![
-                    docker_file_parent.join(format!(".Dockerfile.{docker_file_suffix}.dockerignore")),
-                    docker_file_parent.join(format!("Dockerfile.{docker_file_suffix}.dockerignore")),
-                ]
-            } else {
-                vec![]
-            };
+            let mut ignore_files =
+                if docker_file_name_display == "Dockerfile" || docker_file_name_display == ".Dockerfile" {
+                    vec![]
+                } else if let Some("Dockerfile") = docker_file_name.extension().and_then(OsStr::to_str) {
+                    let docker_file_stem = docker_file_name
+                        .file_stem()
+                        .and_then(OsStr::to_str)
+                        .map(Path::new)
+                        .ok_or_else(|| {
+                            Error::msg(format!(
+                                "unable to process path to Dockerfile: {}",
+                                docker_file.display()
+                            ))
+                        })?
+                        .display()
+                        .to_string()
+                        .replace(r"^\.+", "");
+                    vec![
+                        docker_file_parent.join(format!(".{docker_file_stem}.dockerignore")),
+                        docker_file_parent.join(format!("{docker_file_stem}.dockerignore")),
+                    ]
+                } else if docker_file_name_display.len() > 11 && &docker_file_name_display[..11] == "Dockerfile." {
+                    let docker_file_suffix = &docker_file_name_display[11..];
+                    vec![
+                        docker_file_parent.join(format!(".Dockerfile.{docker_file_suffix}.dockerignore")),
+                        docker_file_parent.join(format!("Dockerfile.{docker_file_suffix}.dockerignore")),
+                    ]
+                } else if docker_file_name_display.len() > 12 && &docker_file_name_display[..12] == ".Dockerfile." {
+                    let docker_file_suffix = &docker_file_name_display[12..];
+                    vec![
+                        docker_file_parent.join(format!(".Dockerfile.{docker_file_suffix}.dockerignore")),
+                        docker_file_parent.join(format!("Dockerfile.{docker_file_suffix}.dockerignore")),
+                    ]
+                } else {
+                    vec![]
+                };
 
             ignore_files.push(docker_file_parent.join(".dockerignore"));
             ignore_files
@@ -299,18 +373,31 @@ fn get_docker_file_and_docker_ignore_file(
     }
 
     if verbose {
-        println!("{}", format!("using Dockerfile at path: {}", docker_file.display()).dimmed());
+        println!(
+            "{}",
+            format!("using Dockerfile at path: {}", docker_file.display()).dimmed()
+        );
         match &ignore_file {
-            Some(ignore_file) => println!("{}", format!("using .dockerignore at path: {}", ignore_file.display()).dimmed()),
+            Some(ignore_file) => println!(
+                "{}",
+                format!("using .dockerignore at path: {}", ignore_file.display()).dimmed()
+            ),
             None => {
                 if ignore_files.len() == 1 {
-                    println!("{}", format!("no .dockerignore file found at path: {}", ignore_files[0].display()).dimmed());
+                    println!(
+                        "{}",
+                        format!("no .dockerignore file found at path: {}", ignore_files[0].display()).dimmed()
+                    );
                 } else {
                     println!(
                         "{}",
                         format!(
                             "no .dockerignore files found at paths:{}",
-                            ignore_files.iter().map(|x| x.display().to_string()).collect::<Vec<_>>().join("\n - ")
+                            ignore_files
+                                .iter()
+                                .map(|x| x.display().to_string())
+                                .collect::<Vec<_>>()
+                                .join("\n - ")
                         )
                         .dimmed()
                     );
@@ -319,5 +406,8 @@ fn get_docker_file_and_docker_ignore_file(
         }
     }
 
-    Ok(DockerConfig { docker_file: read_to_string(docker_file)?, ignore_file: ignore_file.map(read_to_string).transpose()? })
+    Ok(DockerConfig {
+        docker_file: read_to_string(docker_file)?,
+        ignore_file: ignore_file.map(read_to_string).transpose()?,
+    })
 }
