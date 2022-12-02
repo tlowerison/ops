@@ -222,7 +222,7 @@ fn get_cargo_package_of_file(
             }
             return Ok(());
         }
-        if parent.join("Cargo.toml").try_exists()? {
+        if parent.join("Cargo.toml").exists() {
             for dir in package_sub_dirs {
                 package_paths.insert(dir.to_path_buf(), parent.to_path_buf());
             }

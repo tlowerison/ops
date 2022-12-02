@@ -176,17 +176,11 @@ fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> 
 
     let rustup_toolchain_override = "COPY rust-toolchain.toml rust-toolchain.toml\n  RUN cat rust-toolchain.toml | tomlq -t '.toolchain.profile = \"minimal\"' > rust-toolchain2.toml && mv rust-toolchain2.toml rust-toolchain.toml";
     let rustup_update = "RUN rustup update";
-    let rustup_toolchain = rust_toolchain_path
-        .try_exists()
-        .ok()
-        .and_then(|exists| {
-            if exists {
-                Some(format!("{rustup_toolchain_override}\n  {rustup_update}"))
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| rustup_update.to_string());
+    let rustup_toolchain = if rust_toolchain_path.exists() {
+        format!("{rustup_toolchain_override}\n  {rustup_update}")
+    } else {
+        rustup_update.to_string()
+    };
 
     let full_cargo_lock = fs::read_to_string(workspace_dir.join("Cargo.lock"))?.parse::<Value>()?;
 
