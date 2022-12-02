@@ -221,13 +221,12 @@ fn get_fetch_dockerfile(workspace_dir: &Path, rust_version: &Option<String>) -> 
 }
 
 fn get_base_dockerfile(profile: &str) -> String {
-    BASE_DOCKERFILE.replace("$image_name_profile", profile)
+    BASE_DOCKERFILE.replace("$profile", profile)
 }
 
 fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec<&str>], copy: &[String], pre_build_omit: &[String]) -> Result<String, Error> {
-    let service_dockerfile = SERVICE_DOCKERFILE.replace("$service", service_name);
-
-    let service_dockerfile = service_dockerfile.replace("$base_image", &format!("build-rust-{profile}"));
+    let service_dockerfile =
+        SERVICE_DOCKERFILE.replace("$service", service_name).replace("$profile", profile).replace("$base_image", &format!("build-rust-{profile}"));
 
     let mut additional_copies = copy
         .iter()
@@ -285,7 +284,7 @@ fn get_service_dockerfile(service_name: &str, profile: &str, feature_sets: &[Vec
         .iter()
         .map(|feature_set| {
             let feature_set = feature_set.iter().map(|x| format!("_{x}")).collect::<Vec<_>>().join("");
-            format!("  COPY --from=build-{service_name} /app/target/{profile}/{service_name}{feature_set} /app/{service_name}{feature_set}")
+            format!("  COPY --from=build-{service_name}-{profile} /app/target/{profile}/{service_name}{feature_set} /app/{service_name}{feature_set}")
         })
         .collect::<Vec<_>>();
 

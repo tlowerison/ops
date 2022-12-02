@@ -1,4 +1,4 @@
-FROM $base_image as build-$service
+FROM $base_image as pre-build-$service-$profile
   WORKDIR /app
 
   RUN ls -a .
@@ -39,10 +39,10 @@ FROM $base_image as build-$service
   $pre_build
 
   RUN rm -rf src
-  COPY $service/Cargo.toml Cargo.toml
 
-  COPY $service/migrations migrations
-  COPY $service/src src
+FROM pre-build-$service-$profile as build-$service-$profile
+
+  COPY $service/ ./
 
   $build
 

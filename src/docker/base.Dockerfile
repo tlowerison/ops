@@ -1,5 +1,5 @@
 # should only be used as a build stage for subsequent images, otherwise image sizes will be > 1Gb
-FROM fetch-rust AS build-rust-$image_name_profile
+FROM fetch-rust AS build-rust-$profile
 
   ARG build_profile
 
