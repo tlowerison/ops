@@ -18,10 +18,14 @@ pub struct WorkspaceClippyArgs {
     /// whether to print commands prior to running
     #[clap(short, long)]
     pub verbose: bool,
+
+    /// docker build args
+    #[clap(value_parser)]
+    pub clippy_args: Vec<String>,
 }
 
 pub fn workspace_clippy(worspace_clippy_args: WorkspaceClippyArgs) -> Result<(), Error> {
-    let WorkspaceClippyArgs { verbose } = worspace_clippy_args;
+    let WorkspaceClippyArgs { clippy_args, verbose } = worspace_clippy_args;
     let text = git_diff_name_status_since_last_branch()?;
     let git_statuses = parse_git_statuses(&text)?;
 
@@ -205,7 +209,7 @@ pub fn workspace_clippy(worspace_clippy_args: WorkspaceClippyArgs) -> Result<(),
     }
     for package_name in top_level_changed_package_names {
         let cmd = "cargo";
-        let args = [
+        let mut args = vec![
             "clippy",
             "--package",
             &package_name,
@@ -214,10 +218,9 @@ pub fn workspace_clippy(worspace_clippy_args: WorkspaceClippyArgs) -> Result<(),
             "--allow-staged",
             "--all-features",
             "-Zunstable-options",
-            "--",
-            "-D",
-            "warnings",
         ];
+        args.append(&mut clippy_args.iter().map(|x| &**x).collect());
+        args.append(&mut vec!["--", "-D", "warnings"]);
         if verbose {
             println!("{}", vec![cmd, &args.join(" ")].join(" ").dimmed());
         }
