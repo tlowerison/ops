@@ -1,4 +1,4 @@
-FROM $repo/pre-build-$service-$profile as $repo/build-$service-$profile
+FROM $repo/pre-build-$service-$profile as build-$service-$profile
 
   COPY $service/ ./
 
