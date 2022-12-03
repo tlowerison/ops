@@ -25,9 +25,18 @@ pub struct WorkspaceClippyArgs {
 }
 
 pub fn workspace_clippy(worspace_clippy_args: WorkspaceClippyArgs) -> Result<(), Error> {
-    let WorkspaceClippyArgs { clippy_args, verbose } = worspace_clippy_args;
+    let WorkspaceClippyArgs {
+        mut clippy_args,
+        verbose,
+    } = worspace_clippy_args;
     let text = git_diff_name_status_since_last_branch()?;
     let git_statuses = parse_git_statuses(&text)?;
+
+    if !clippy_args.is_empty() && &clippy_args[0] != "--" {
+        return Err(Error::msg("additional clippy args must be prefaced by a '--' arg"));
+    } else {
+        clippy_args.remove(0);
+    }
 
     let mut package_paths = HashMap::<PathBuf, PathBuf>::default();
     let mut no_package_dirs = HashSet::<PathBuf>::default();
