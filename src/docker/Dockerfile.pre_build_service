@@ -1,4 +1,4 @@
-FROM pre-build-rust-workspace-deps-$profile as pre-build-$service-$profile
+FROM $repo/pre-build-rust-workspace-deps-$profile as $repo/pre-build-$service-$profile
   WORKDIR /app
 
   RUN ls -a .

@@ -128,7 +128,11 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
             .chain(once(format!("--tag={repo}/fetch-rust-workspace-deps")))
             .collect(),
         file: None,
-        file_text: Some(get_fetch_rust_workspace_deps_dockerfile(workspace_dir, &rust_version)?),
+        file_text: Some(get_fetch_rust_workspace_deps_dockerfile(
+            repo,
+            workspace_dir,
+            &rust_version,
+        )?),
         ignore_file: ignore_file.clone(),
         verbose,
     })?;
@@ -149,7 +153,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
             .chain(once(format!("--tag={repo}/pre-build-rust-workspace-deps-{profile}")))
             .collect(),
         file: None,
-        file_text: Some(get_pre_build_rust_workspace_deps_dockerfile(&profile)),
+        file_text: Some(get_pre_build_rust_workspace_deps_dockerfile(repo, &profile)),
         ignore_file: ignore_file.clone(),
         verbose,
     })?;
@@ -163,6 +167,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
             .collect(),
         file: None,
         file_text: Some(get_pre_build_service_dockerfile(
+            repo,
             service_name,
             &profile,
             &build_profile,
@@ -178,6 +183,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     docker_build(DockerBuildArgs {
         file: None,
         file_text: Some(get_build_service_dockerfile(
+            repo,
             service_name,
             &profile,
             &build_profile,
@@ -200,6 +206,7 @@ fn get_features_flag(feature_set: &[&str]) -> String {
 }
 
 fn get_fetch_rust_workspace_deps_dockerfile(
+    repo: &str,
     workspace_dir: &Path,
     rust_version: &Option<String>,
 ) -> Result<String, Error> {
@@ -251,6 +258,7 @@ fn get_fetch_rust_workspace_deps_dockerfile(
             "$rust_version",
             rust_version.as_ref().map(|x| &**x).unwrap_or_else(|| "latest"),
         )
+        .replace("$repo", repo)
         .replace("$rustup_toolchain", &rustup_toolchain)
         .replace(
             "$fetch_cargo_lock",
@@ -260,11 +268,14 @@ fn get_fetch_rust_workspace_deps_dockerfile(
     Ok(fetch_rust_workspace_deps_dockerfile)
 }
 
-fn get_pre_build_rust_workspace_deps_dockerfile(profile: &str) -> String {
-    PRE_BUILD_RUST_WORKSPACE_DEPS_DOCKERFILE.replace("$profile", profile)
+fn get_pre_build_rust_workspace_deps_dockerfile(repo: &str, profile: &str) -> String {
+    PRE_BUILD_RUST_WORKSPACE_DEPS_DOCKERFILE
+        .replace("$profile", profile)
+        .replace("$repo", repo)
 }
 
 fn get_pre_build_service_dockerfile(
+    repo: &str,
     service_name: &str,
     profile: &str,
     build_profile: &str,
@@ -273,6 +284,7 @@ fn get_pre_build_service_dockerfile(
     pre_build_omit: &[String],
 ) -> Result<String, Error> {
     let pre_build_service_dockerfile = PRE_BUILD_SERVICE_DOCKERFILE
+        .replace("$repo", repo)
         .replace("$service", service_name)
         .replace("$profile", profile);
 
@@ -322,12 +334,14 @@ fn get_pre_build_service_dockerfile(
 }
 
 fn get_build_service_dockerfile(
+    repo: &str,
     service_name: &str,
     profile: &str,
     build_profile: &str,
     feature_sets: &[Vec<&str>],
 ) -> Result<String, Error> {
     let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE
+        .replace("$repo", repo)
         .replace("$service", service_name)
         .replace("$profile", profile);
 

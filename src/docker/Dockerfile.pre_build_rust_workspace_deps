@@ -1,5 +1,5 @@
 # should only be used as a build stage for subsequent images, otherwise image sizes will be > 1Gb
-FROM fetch-rust-workspace-deps AS pre-build-rust-workspace-deps-$profile
+FROM $repo/fetch-rust-workspace-deps AS $repo/pre-build-rust-workspace-deps-$profile
 
   ARG build_profile
 
