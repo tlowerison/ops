@@ -53,6 +53,10 @@ pub struct DockerBuildRustWorkspaceArgs {
     #[clap(short, long)]
     pub service: Option<PathBuf>,
 
+    /// whether to use the default feature set built binary as the entrypoint
+    #[clap(long)]
+    pub use_entrypoint: bool,
+
     /// log commands prior to running them
     #[clap(short, long)]
     pub verbose: bool,
@@ -73,6 +77,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         profile,
         rust_version,
         service: provided_service_dir,
+        use_entrypoint,
         verbose,
     } = args;
 
@@ -188,6 +193,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
             &profile,
             &build_profile,
             &feature_sets,
+            use_entrypoint,
         )?),
         docker_args,
         ignore_file,
@@ -339,6 +345,7 @@ fn get_build_service_dockerfile(
     profile: &str,
     build_profile: &str,
     feature_sets: &[Vec<&str>],
+    use_entrypoint: bool,
 ) -> Result<String, Error> {
     let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE
         .replace("$repo", repo)
@@ -371,6 +378,12 @@ fn get_build_service_dockerfile(
 
     let build_service_dockerfile =
         build_service_dockerfile.replace("$binary_copy", service_docker_copy_binaries.join("\n").trim());
+
+    let build_service_dockerfile = if use_entrypoint {
+        build_service_dockerfile.replace("$entrypoint", &format!(r#"ENTRYPOINT ["/app/{service_name}"]"#))
+    } else {
+        build_service_dockerfile.replace("$entrypoint", &format!(""))
+    };
 
     Ok(build_service_dockerfile)
 }
