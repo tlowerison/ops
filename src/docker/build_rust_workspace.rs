@@ -271,7 +271,7 @@ fn get_fetch_rust_workspace_deps_dockerfile(
             &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"),
         );
 
-    Ok(fetch_rust_workspace_deps_dockerfile)
+    Ok(fetch_rust_workspace_deps_dockerfile.trim().to_string())
 }
 
 fn get_pre_build_rust_workspace_deps_dockerfile(repo: &str, profile: &str) -> String {
@@ -336,7 +336,7 @@ fn get_pre_build_service_dockerfile(
     let pre_build_service_dockerfile =
         pre_build_service_dockerfile.replace("$pre_build", service_docker_pre_builds.join("\n").trim());
 
-    Ok(pre_build_service_dockerfile)
+    Ok(pre_build_service_dockerfile.trim().to_string())
 }
 
 fn get_build_service_dockerfile(
@@ -385,7 +385,7 @@ fn get_build_service_dockerfile(
         build_service_dockerfile.replace("$entrypoint", &format!(""))
     };
 
-    Ok(build_service_dockerfile)
+    Ok(build_service_dockerfile.trim().to_string())
 }
 
 fn get_workspace_dir(service_dir: &Path) -> Result<&Path, Error> {

@@ -15,3 +15,5 @@ FROM debian:11-slim
   RUN rm -rf /var/lib/apt/lists/*
 
   $binary_copy
+
+  $entrypoint
