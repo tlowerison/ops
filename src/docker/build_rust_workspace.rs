@@ -159,6 +159,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     docker_build(DockerBuildArgs {
         file: None,
         file_text: Some(get_build_service_dockerfile(
+            &pre_build_service_image_tag,
             service_name,
             &profile,
             &build_profile,
@@ -293,14 +294,13 @@ fn get_pre_build_service_dockerfile(
 }
 
 fn get_build_service_dockerfile(
+    pre_build_service_image_tag: &str,
     service_name: &str,
     profile: &str,
     build_profile: &str,
     feature_sets: &[Vec<&str>],
     use_entrypoint: bool,
 ) -> Result<String, Error> {
-    let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE;
-
     let service_docker_build_binaries = feature_sets
         .iter()
         .map(|feature_set| {
@@ -314,9 +314,6 @@ fn get_build_service_dockerfile(
         })
         .collect::<Vec<_>>();
 
-    let build_service_dockerfile =
-        build_service_dockerfile.replace("$build", service_docker_build_binaries.join("\n").trim());
-
     let service_docker_copy_binaries = feature_sets
         .iter()
         .map(|feature_set| {
@@ -325,14 +322,17 @@ fn get_build_service_dockerfile(
         })
         .collect::<Vec<_>>();
 
-    let build_service_dockerfile =
-        build_service_dockerfile.replace("$binary_copy", service_docker_copy_binaries.join("\n").trim());
-
-    let build_service_dockerfile = if use_entrypoint {
-        build_service_dockerfile.replace("$entrypoint", &format!(r#"ENTRYPOINT ["/app/{service_name}"]"#))
-    } else {
-        build_service_dockerfile.replace("$entrypoint", &format!(""))
-    };
+    let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE
+        .replace("$pre_build_service_image_tag", pre_build_service_image_tag)
+        .replace("$build", service_docker_build_binaries.join("\n").trim())
+        .replace("$binary_copy", service_docker_copy_binaries.join("\n").trim())
+        .replace(
+            "$entrypoint",
+            &match use_entrypoint {
+                true => format!(r#"ENTRYPOINT ["/app/{service_name}"]"#),
+                false => format!(""),
+            },
+        );
 
     Ok(build_service_dockerfile.trim().to_string())
 }

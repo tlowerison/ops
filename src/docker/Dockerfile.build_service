@@ -1,4 +1,4 @@
-FROM $pre_build_image_tag as build
+FROM $pre_build_service_image_tag as build
 
   $build
 
