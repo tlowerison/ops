@@ -6,8 +6,6 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, iter::once};
 use toml::Value;
 
-const FETCH_RUST_WORKSPACE_DEPS_DOCKERFILE: &str = include_str!("Dockerfile.fetch_rust_workspace_deps");
-const PRE_BUILD_RUST_WORKSPACE_DEPS_DOCKERFILE: &str = include_str!("Dockerfile.pre_build_rust_workspace_deps");
 const PRE_BUILD_SERVICE_DOCKERFILE: &str = include_str!("Dockerfile.pre_build_service");
 const BUILD_SERVICE_DOCKERFILE: &str = include_str!("Dockerfile.build_service");
 
@@ -114,7 +112,8 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     env::set_current_dir(workspace_dir)?;
 
     let SplitDockerArgs { tag, other } = split_docker_args(&docker_args)?;
-    let repo = get_repo_from_tag(tag)?;
+    let registry = get_registry_from_tag(tag)?;
+    let repository = get_repository_from_tag(tag)?;
     let args_without_image_tag = other.into_iter().map(String::from).collect::<Vec<_>>();
     let profile = profile.unwrap_or_else(|| "release".to_string());
     let build_profile = if profile == "debug" {
@@ -125,54 +124,28 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         format!(" --profile={profile}")
     };
 
-    // fetch-rust-workspace-deps
-    docker_build(DockerBuildArgs {
-        docker_args: args_without_image_tag
-            .clone()
-            .into_iter()
-            .chain(once(format!("--tag={repo}/fetch-rust-workspace-deps")))
-            .collect(),
-        file: None,
-        file_text: Some(get_fetch_rust_workspace_deps_dockerfile(
-            repo,
-            workspace_dir,
-            &rust_version,
-        )?),
-        ignore_file: ignore_file.clone(),
-        verbose,
-    })?;
+    let build_service_image_tag = format!("{registry}/{repository}:{tag}-{profile}");
+    let pre_build_service_image_tag = format!("{registry}/{repository}:{tag}-{profile}-pre-build");
 
-    // pre-build-rust-workspace-deps-$profile
-    let mut pre_build_rust_workspace_deps_docker_args = args_without_image_tag;
-    let build_profile_arg = if profile == "debug" {
-        "build_profile=".to_string()
-    } else if profile == "release" {
-        "build_profile=--release".to_string()
-    } else {
-        format!("build_profile=--profile={profile}")
+    let mut pre_build_service_docker_args = args_without_image_tag;
+    let build_profile_arg = match &*profile {
+        "debug" => "build_profile=".to_string(),
+        "release" => "build_profile=--release".to_string(),
+        _ => format!("build_profile=--profile={profile}"),
     };
-    pre_build_rust_workspace_deps_docker_args.append(&mut vec!["--build-arg".to_string(), build_profile_arg]);
-    docker_build(DockerBuildArgs {
-        docker_args: pre_build_rust_workspace_deps_docker_args
-            .into_iter()
-            .chain(once(format!("--tag={repo}/pre-build-rust-workspace-deps-{profile}")))
-            .collect(),
-        file: None,
-        file_text: Some(get_pre_build_rust_workspace_deps_dockerfile(repo, &profile)),
-        ignore_file: ignore_file.clone(),
-        verbose,
-    })?;
+    pre_build_service_docker_args.append(&mut vec!["--build-arg".to_string(), build_profile_arg]);
 
-    // pre-build-$service-$profile
+    // pre-build
     docker_build(DockerBuildArgs {
-        docker_args: docker_args
+        docker_args: pre_build_service_docker_args
             .clone()
             .into_iter()
-            .chain(once(format!("--tag={repo}/pre-build-{service_name}-{profile}")))
+            .chain(once(pre_build_service_image_tag.clone()))
             .collect(),
         file: None,
         file_text: Some(get_pre_build_service_dockerfile(
-            repo,
+            workspace_dir,
+            &rust_version,
             service_name,
             &profile,
             &build_profile,
@@ -184,18 +157,21 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         verbose,
     })?;
 
-    // build-$service-$profile
+    // build service
     docker_build(DockerBuildArgs {
         file: None,
         file_text: Some(get_build_service_dockerfile(
-            repo,
             service_name,
             &profile,
             &build_profile,
             &feature_sets,
             use_entrypoint,
         )?),
-        docker_args,
+        docker_args: docker_args
+            .clone()
+            .into_iter()
+            .chain(once(build_service_image_tag))
+            .collect(),
         ignore_file,
         verbose,
     })?;
@@ -211,10 +187,15 @@ fn get_features_flag(feature_set: &[&str]) -> String {
     }
 }
 
-fn get_fetch_rust_workspace_deps_dockerfile(
-    repo: &str,
+fn get_pre_build_service_dockerfile(
     workspace_dir: &Path,
     rust_version: &Option<String>,
+    service_name: &str,
+    profile: &str,
+    build_profile: &str,
+    feature_sets: &[Vec<&str>],
+    copy: &[String],
+    pre_build_omit: &[String],
 ) -> Result<String, Error> {
     let rust_toolchain_path = workspace_dir.join("rust-toolchain.toml");
 
@@ -259,41 +240,6 @@ fn get_fetch_rust_workspace_deps_dockerfile(
     )]));
     let fetch_cargo_lock_toml = toml::ser::to_string(&fetch_cargo_lock_toml)?;
 
-    let fetch_rust_workspace_deps_dockerfile = FETCH_RUST_WORKSPACE_DEPS_DOCKERFILE
-        .replace(
-            "$rust_version",
-            rust_version.as_ref().map(|x| &**x).unwrap_or_else(|| "latest"),
-        )
-        .replace("$repo", repo)
-        .replace("$rustup_toolchain", &rustup_toolchain)
-        .replace(
-            "$fetch_cargo_lock",
-            &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"),
-        );
-
-    Ok(fetch_rust_workspace_deps_dockerfile.trim().to_string())
-}
-
-fn get_pre_build_rust_workspace_deps_dockerfile(repo: &str, profile: &str) -> String {
-    PRE_BUILD_RUST_WORKSPACE_DEPS_DOCKERFILE
-        .replace("$profile", profile)
-        .replace("$repo", repo)
-}
-
-fn get_pre_build_service_dockerfile(
-    repo: &str,
-    service_name: &str,
-    profile: &str,
-    build_profile: &str,
-    feature_sets: &[Vec<&str>],
-    copy: &[String],
-    pre_build_omit: &[String],
-) -> Result<String, Error> {
-    let pre_build_service_dockerfile = PRE_BUILD_SERVICE_DOCKERFILE
-        .replace("$repo", repo)
-        .replace("$service", service_name)
-        .replace("$profile", profile);
-
     let mut additional_copies = copy
         .iter()
         .enumerate()
@@ -312,8 +258,6 @@ fn get_pre_build_service_dockerfile(
         additional_copies = format!("\n\n{additional_copies}");
     }
 
-    let pre_build_service_dockerfile = pre_build_service_dockerfile.replace("$file_copy", &additional_copies);
-
     let pre_build_omit_deps = format!(
         r#"'{{{}}}'"#,
         pre_build_omit
@@ -322,8 +266,6 @@ fn get_pre_build_service_dockerfile(
             .collect::<Vec<_>>()
             .join(",")
     );
-    let pre_build_service_dockerfile =
-        pre_build_service_dockerfile.replace("$pre_build_omit_deps", &pre_build_omit_deps);
 
     let mut service_docker_pre_builds = feature_sets
         .iter()
@@ -333,24 +275,33 @@ fn get_pre_build_service_dockerfile(
         "  RUN rm /app/target/{profile}/rust_build && rm /app/target/{profile}/{service_name}"
     ));
 
-    let pre_build_service_dockerfile =
-        pre_build_service_dockerfile.replace("$pre_build", service_docker_pre_builds.join("\n").trim());
+    let dockerfile = PRE_BUILD_SERVICE_DOCKERFILE
+        .replace(
+            "$rust_version",
+            rust_version.as_ref().map(|x| &**x).unwrap_or_else(|| "latest"),
+        )
+        .replace("$rustup_toolchain", &rustup_toolchain)
+        .replace(
+            "$fetch_cargo_lock",
+            &format!("RUN echo '{}' > Cargo.lock", fetch_cargo_lock_toml).replace('\n', "\\n\\\n"),
+        )
+        .replace("$service", service_name)
+        .replace("$profile", profile)
+        .replace("$file_copy", &additional_copies)
+        .replace("$pre_build_omit_deps", &pre_build_omit_deps)
+        .replace("$pre_build_service", service_docker_pre_builds.join("\n").trim());
 
-    Ok(pre_build_service_dockerfile.trim().to_string())
+    Ok(dockerfile.trim().to_string())
 }
 
 fn get_build_service_dockerfile(
-    repo: &str,
     service_name: &str,
     profile: &str,
     build_profile: &str,
     feature_sets: &[Vec<&str>],
     use_entrypoint: bool,
 ) -> Result<String, Error> {
-    let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE
-        .replace("$repo", repo)
-        .replace("$service", service_name)
-        .replace("$profile", profile);
+    let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE;
 
     let service_docker_build_binaries = feature_sets
         .iter()
@@ -372,7 +323,7 @@ fn get_build_service_dockerfile(
         .iter()
         .map(|feature_set| {
             let feature_set = feature_set.iter().map(|x| format!("_{x}")).collect::<Vec<_>>().join("");
-            format!("  COPY --from=build-{service_name}-{profile} /app/target/{profile}/{service_name}{feature_set} /app/{service_name}{feature_set}")
+            format!("  COPY --from=build /app/target/{profile}/{service_name}{feature_set} /app/{service_name}{feature_set}")
         })
         .collect::<Vec<_>>();
 

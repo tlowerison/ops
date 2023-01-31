@@ -1,6 +1,4 @@
-FROM $repo/pre-build-$service-$profile as build-$service-$profile
-
-  COPY $service/ ./
+FROM $pre_build_image_tag as build
 
   $build
 
