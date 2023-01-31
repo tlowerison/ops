@@ -2,6 +2,7 @@ use crate::docker::build::*;
 use anyhow::Error;
 use clap::Parser;
 use path_absolutize::*;
+use pathdiff::diff_paths;
 use std::path::{Path, PathBuf};
 use std::{env, fs, iter::once};
 use toml::Value;
@@ -83,11 +84,12 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     let cwd = Path::new(&cwd);
 
     let mut service_dir = cwd.to_path_buf();
-    if let Some(mut provided_service_dir) = provided_service_dir {
+    if let Some(provided_service_dir) = provided_service_dir.as_ref() {
         if !provided_service_dir.has_root() {
-            provided_service_dir = cwd.join(provided_service_dir).absolutize()?.to_path_buf();
+            service_dir = cwd.join(provided_service_dir).absolutize()?.to_path_buf();
+        } else {
+            service_dir = provided_service_dir.clone();
         }
-        service_dir = provided_service_dir;
     }
 
     let service_manifest = fs::read_to_string(service_dir.join("Cargo.toml"))?.parse::<Value>()?;
@@ -109,7 +111,11 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     }
 
     let workspace_dir = get_workspace_dir(&service_dir)?;
-    env::set_current_dir(workspace_dir)?;
+    env::set_current_dir(&workspace_dir)?;
+
+    let relative_service_dir = diff_paths(&service_dir, &workspace_dir).ok_or_else(|| {
+        Error::msg("unable to determine relative path from workspace (`{workspace_dir}`) to service (`{service_dir}`)")
+    })?;
 
     let SplitDockerArgs { tag, other } = split_docker_args(&docker_args)?;
     let args_without_image_tag = other.into_iter().map(String::from).collect::<Vec<_>>();
@@ -161,6 +167,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         file_text: Some(get_build_service_dockerfile(
             &pre_build_service_image_tag,
             service_name,
+            &relative_service_dir,
             &profile,
             &build_profile,
             &feature_sets,
@@ -296,6 +303,7 @@ fn get_pre_build_service_dockerfile(
 fn get_build_service_dockerfile(
     pre_build_service_image_tag: &str,
     service_name: &str,
+    relative_service_dir: &PathBuf,
     profile: &str,
     build_profile: &str,
     feature_sets: &[Vec<&str>],
@@ -324,6 +332,7 @@ fn get_build_service_dockerfile(
 
     let build_service_dockerfile = BUILD_SERVICE_DOCKERFILE
         .replace("$pre_build_service_image_tag", pre_build_service_image_tag)
+        .replace("$service_dir", &relative_service_dir.display().to_string())
         .replace("$build", service_docker_build_binaries.join("\n").trim())
         .replace("$binary_copy", service_docker_copy_binaries.join("\n").trim())
         .replace(

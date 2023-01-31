@@ -1,5 +1,7 @@
 FROM $pre_build_service_image_tag as build
 
+  COPY $service_dir/ ./
+
   $build
 
 FROM debian:11-slim
