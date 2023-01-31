@@ -112,8 +112,6 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
     env::set_current_dir(workspace_dir)?;
 
     let SplitDockerArgs { tag, other } = split_docker_args(&docker_args)?;
-    let registry = get_registry_from_tag(tag)?;
-    let repository = get_repository_from_tag(tag)?;
     let args_without_image_tag = other.into_iter().map(String::from).collect::<Vec<_>>();
     let profile = profile.unwrap_or_else(|| "release".to_string());
     let build_profile = if profile == "debug" {
@@ -124,8 +122,8 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         format!(" --profile={profile}")
     };
 
-    let build_service_image_tag = format!("{registry}/{repository}:{tag}-{profile}");
-    let pre_build_service_image_tag = format!("{registry}/{repository}:{tag}-{profile}-pre-build");
+    let build_service_image_tag = format!("{tag}-{profile}");
+    let pre_build_service_image_tag = format!("{tag}-{profile}-pre-build");
 
     let mut pre_build_service_docker_args = args_without_image_tag;
     let build_profile_arg = match &*profile {
@@ -140,7 +138,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         docker_args: pre_build_service_docker_args
             .clone()
             .into_iter()
-            .chain(once(pre_build_service_image_tag.clone()))
+            .chain(once(format!("--tag={pre_build_service_image_tag}")))
             .collect(),
         file: None,
         file_text: Some(get_pre_build_service_dockerfile(
@@ -170,7 +168,7 @@ pub fn docker_build_rust_workspace(args: DockerBuildRustWorkspaceArgs) -> Result
         docker_args: docker_args
             .clone()
             .into_iter()
-            .chain(once(build_service_image_tag))
+            .chain(once(format!("--tag={build_service_image_tag}")))
             .collect(),
         ignore_file,
         verbose,

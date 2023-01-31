@@ -333,23 +333,3 @@ fn get_docker_file_and_docker_ignore_file(
         ignore_file: ignore_file.map(read_to_string).transpose()?,
     })
 }
-
-pub fn get_registry_from_tag(tag: &str) -> Result<&str, Error> {
-    let registry = tag
-        .split_once('/')
-        .ok_or_else(|| Error::msg("cannot parse image registry from image tag: no `/` character found"))?
-        .0;
-    Ok(registry)
-}
-
-pub fn get_repository_from_tag(tag: &str) -> Result<&str, Error> {
-    let non_registry = tag
-        .split_once('/')
-        .ok_or_else(|| Error::msg("cannot parse image repository from image tag: no `/` character found"))?
-        .1;
-    let repository = non_registry
-        .split_once(':')
-        .ok_or_else(|| Error::msg("cannot parse image repository from image tag: no `:` character found"))?
-        .0;
-    Ok(repository)
-}
